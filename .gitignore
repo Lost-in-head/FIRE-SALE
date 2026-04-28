@@ -45,7 +45,7 @@ dist/
 node_modules/
 venv/
 .venv/
-__pychache__/
+__pycache__/
 logs/
 *.log
 npm-debug.log*

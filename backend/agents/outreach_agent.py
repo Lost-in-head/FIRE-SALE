@@ -22,7 +22,7 @@ import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
-from db import get_connection  # noqa: E402
+from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN        = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -33,39 +33,9 @@ SMTP_PORT      = int(os.getenv("SMTP_PORT", "587"))
 FROM_EMAIL     = os.getenv("EMAIL_ADDRESS")
 FROM_PASSWORD  = os.getenv("EMAIL_APP_PASSWORD")
 FROM_NAME      = os.getenv("SENDER_NAME", "Chris")
+BOOKING_LINK   = os.getenv("BOOKING_LINK", "")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [OUTREACH] %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_PATH),
-        logging.StreamHandler(),
-    ],
-)
-log = logging.getLogger("outreach_agent")
-
-# ── DB migration ─────────────────────────────────────────────────────────────
-
-def migrate_db(conn: sqlite3.Connection) -> None:
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(leads)")
-    existing = {row[1] for row in cursor.fetchall()}
-    additions = {
-        "last_outreach_at": "TIMESTAMP",
-        "follow_up_count":  "INTEGER DEFAULT 0",
-        "email_subject":    "TEXT",
-        "email_body":       "TEXT",
-        "qualify_verdict":  "TEXT",
-        "qualify_summary":  "TEXT",
-        "qualify_action":   "TEXT",
-        "qualify_score":    "INTEGER",
-    }
-    for col, dtype in additions.items():
-        if col not in existing:
-            cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} {dtype}")
-            log.info("Migration: added column '%s'", col)
-    conn.commit()
-
+log = logging.getLogger(__name__)
 
 # ── Email generation via Claude ───────────────────────────────────────────────
 
@@ -80,6 +50,12 @@ Qualifier summary: {lead['qualify_summary'] or 'Small web design agency or freel
 Qualifier flags: {lead['qualify_action'] or ''}
 """
 
+    booking_instruction = (
+        f"- CTA: invite them to book a short call via this link: {BOOKING_LINK}"
+        if BOOKING_LINK
+        else "- Clear single CTA: a short call this week"
+    )
+
     prompt = f"""You are writing a cold outreach email on behalf of {FROM_NAME}, who helps small web design agencies and freelancers build better client acquisition systems using AI-assisted outreach.
 
 Lead context:
@@ -89,7 +65,7 @@ Email rules:
 - Maximum 5 sentences in the body
 - Conversational, not corporate
 - Reference something specific about their business if you can infer it
-- Clear single CTA: a short call this week
+- {booking_instruction}
 - No buzzwords, no "I hope this finds you well", no spam language
 - Subject line: short, curiosity-driven, under 8 words
 
@@ -202,6 +178,11 @@ class OutreachAgent:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [OUTREACH] %(levelname)s %(message)s",
+        handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()],
+    )
     if DRY_RUN:
         log.info("DRY RUN mode — no emails will be sent.")
     agent = OutreachAgent()
