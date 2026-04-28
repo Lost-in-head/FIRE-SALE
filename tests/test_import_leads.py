@@ -12,7 +12,9 @@ from pathlib import Path
 def fresh_db(monkeypatch, tmp_path):
     db_file = str(tmp_path / "test_leads.sqlite3")
     monkeypatch.setenv("LEADS_DB_PATH", db_file)
-    import importlib, db as db_module, import_leads as il_module
+    import importlib
+    import db as db_module
+    import import_leads as il_module
     importlib.reload(db_module)
     importlib.reload(il_module)
     return il_module, db_module, tmp_path

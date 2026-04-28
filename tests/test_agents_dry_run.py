@@ -24,7 +24,8 @@ def tmp_db(monkeypatch, tmp_path):
     monkeypatch.setenv("EMAIL_ADDRESS", "from@example.com")
     monkeypatch.setenv("EMAIL_APP_PASSWORD", "password")
 
-    import importlib, db as db_module
+    import importlib
+    import db as db_module
     importlib.reload(db_module)
     db_module.init_db()
     return db_module

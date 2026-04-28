@@ -31,7 +31,8 @@ class TestGetConnection:
     def test_creates_parent_directory(self, monkeypatch, tmp_path):
         nested = tmp_path / "nested" / "dir" / "leads.sqlite3"
         monkeypatch.setenv("LEADS_DB_PATH", str(nested))
-        import importlib, db as db_module
+        import importlib
+        import db as db_module
         importlib.reload(db_module)
         conn = db_module.get_connection()
         assert nested.parent.exists()
