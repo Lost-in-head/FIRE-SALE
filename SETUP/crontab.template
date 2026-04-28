@@ -1,0 +1,30 @@
+# FIRE-SALE Crontab Template
+# --------------------------
+# Install with:  crontab -e
+# Then paste the relevant lines below (edit the path to match your install).
+#
+# The pipeline reads secrets from a .env file in the project root.
+# Load it with `set -a && source /path/to/.env && set +a` or use direnv.
+#
+# Adjust the time as needed — default is every day at 08:00 local time.
+
+# ── Full pipeline (daily at 08:00) ──────────────────────────────────────────
+0 8 * * * cd /path/to/FIRE-SALE && set -a && source .env && set +a && python backend/agents/director_agent.py >> logs/pipeline.log 2>&1
+
+# ── Single-stage examples (uncomment and adjust as needed) ──────────────────
+# Lead qualification only — runs every day at 07:45
+# 45 7 * * * cd /path/to/FIRE-SALE && source .env && python backend/agents/director_agent.py --stage lead_gen >> logs/lead_gen.log 2>&1
+
+# Follow-ups only — every 6 hours
+# 0 */6 * * * cd /path/to/FIRE-SALE && source .env && python backend/agents/director_agent.py --stage followup >> logs/followup.log 2>&1
+
+# ── Log rotation hint ────────────────────────────────────────────────────────
+# Add to /etc/logrotate.d/fire-sale:
+#
+# /path/to/FIRE-SALE/logs/*.log {
+#     daily
+#     rotate 14
+#     compress
+#     missingok
+#     notifempty
+# }

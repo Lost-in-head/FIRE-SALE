@@ -1,0 +1,80 @@
+name: Run FIRE-SALE Pipeline
+
+on:
+  # Run the full pipeline every day at 08:00 UTC
+  schedule:
+    - cron: "0 8 * * *"
+
+  # Allow manual trigger from the Actions tab
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Pipeline stage to run (leave empty for full pipeline)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - lead_gen
+          - outreach
+          - followup
+          - closer
+      dry_run:
+        description: "Dry run (no emails sent, no DB writes)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore lead database from cache
+        id: db-cache
+        uses: actions/cache@v4
+        with:
+          path: data/fire_sale_leads.sqlite3
+          key: fire-sale-db-${{ runner.os }}
+          restore-keys: |
+            fire-sale-db-
+
+      - name: Run Director Agent
+        env:
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          EMAIL_ADDRESS:       ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_APP_PASSWORD:  ${{ secrets.EMAIL_APP_PASSWORD }}
+          SENDER_NAME:         ${{ secrets.SENDER_NAME }}
+          BOOKING_LINK:        ${{ secrets.BOOKING_LINK }}
+          SMTP_HOST:           ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT:           ${{ vars.SMTP_PORT || '587' }}
+          SCORE_DEAD_THRESHOLD: ${{ vars.SCORE_DEAD_THRESHOLD || '4' }}
+          DRY_RUN:             ${{ inputs.dry_run || 'false' }}
+        run: |
+          STAGE_ARG=""
+          if [ -n "${{ inputs.stage }}" ]; then
+            STAGE_ARG="--stage ${{ inputs.stage }}"
+          fi
+          DRY_ARG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_ARG="--dry-run"
+          fi
+          python backend/agents/director_agent.py $STAGE_ARG $DRY_ARG
+
+      - name: Save lead database to cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/fire_sale_leads.sqlite3
+          key: fire-sale-db-${{ runner.os }}-${{ github.run_id }}
