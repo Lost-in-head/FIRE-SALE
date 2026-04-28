@@ -23,7 +23,7 @@ import anthropic
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 
-from db import get_connection  # noqa: E402
+from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -31,39 +31,7 @@ LOG_PATH = BASE_DIR / "fire_sale.log"
 SCORE_DEAD_THRESHOLD = int(os.getenv("SCORE_DEAD_THRESHOLD", "4"))
 REQUEST_DELAY = float(os.getenv("LEAD_GEN_DELAY", "2.0"))  # seconds between API calls
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [LEAD-GEN] %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_PATH),
-        logging.StreamHandler(),
-    ],
-)
-log = logging.getLogger("lead_gen_agent")
-
-# ── DB migration ─────────────────────────────────────────────────────────────
-
-def migrate_db(conn: sqlite3.Connection) -> None:
-    """Safely add qualification columns if they don't exist."""
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(leads)")
-    existing = {row[1] for row in cursor.fetchall()}
-
-    additions = {
-        "website_url":       "TEXT",
-        "qualify_score":     "INTEGER",
-        "qualify_verdict":   "TEXT",
-        "qualify_flags":     "TEXT",
-        "qualify_action":    "TEXT",
-        "qualify_summary":   "TEXT",
-        "qualified_at":      "TIMESTAMP",
-    }
-    for col, dtype in additions.items():
-        if col not in existing:
-            cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} {dtype}")
-            log.info("Migration: added column '%s'", col)
-
-    conn.commit()
+log = logging.getLogger(__name__)
 
 
 # ── Website fetcher ───────────────────────────────────────────────────────────
@@ -274,6 +242,11 @@ class LeadGenAgent:
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [LEAD-GEN] %(levelname)s %(message)s",
+        handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()],
+    )
     if DRY_RUN:
         log.info("DRY RUN mode — no DB writes.")
     agent = LeadGenAgent()

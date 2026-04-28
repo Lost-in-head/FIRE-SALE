@@ -81,28 +81,28 @@ def _print_snapshot(snapshot: dict, label: str = "") -> None:
 
 # ── Stage runners ─────────────────────────────────────────────────────────────
 
-def _run_lead_gen(dry_run: bool) -> dict:
+def _run_lead_gen() -> dict:
     log.info("══ Stage 1: Lead Gen Agent ══")
     from agents.lead_gen_agent import LeadGenAgent
     agent = LeadGenAgent()
     return agent.run()
 
 
-def _run_outreach(dry_run: bool) -> dict:
+def _run_outreach() -> dict:
     log.info("══ Stage 2: Outreach Agent ══")
     from agents.outreach_agent import OutreachAgent
     agent = OutreachAgent()
     return agent.run()
 
 
-def _run_followup(dry_run: bool) -> dict:
+def _run_followup() -> dict:
     log.info("══ Stage 3: Follow-Up Agent ══")
     from agents.followup_agent import FollowUpAgent
     agent = FollowUpAgent()
     return agent.run()
 
 
-def _run_closer(dry_run: bool) -> dict:
+def _run_closer() -> dict:
     log.info("══ Stage 4: Closer Agent ══")
     from agents.closer_agent import CloserAgent
     agent = CloserAgent()
@@ -152,12 +152,12 @@ class DirectorAgent:
             if not fn:
                 log.error("Unknown stage '%s'. Valid: %s", self.stage, list(STAGES))
                 return
-            all_results[self.stage] = fn(self.dry_run)
+            all_results[self.stage] = fn()
         else:
             # Full pipeline
             for name, fn in STAGES.items():
                 try:
-                    all_results[name] = fn(self.dry_run)
+                    all_results[name] = fn()
                 except EnvironmentError as exc:
                     log.error("Stage '%s' skipped — missing config: %s", name, exc)
                     all_results[name] = {"error": str(exc)}

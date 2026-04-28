@@ -29,7 +29,7 @@ import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
-from db import get_connection  # noqa: E402
+from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN       = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -38,37 +38,7 @@ BRIEFS_DIR    = BASE_DIR / "data" / "call_briefs"
 FROM_NAME     = os.getenv("SENDER_NAME", "Chris")
 REQUEST_DELAY = float(os.getenv("CLOSER_DELAY", "2.0"))
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [CLOSER] %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_PATH),
-        logging.StreamHandler(),
-    ],
-)
-log = logging.getLogger("closer_agent")
-
-
-# ── DB migration ─────────────────────────────────────────────────────────────
-
-def migrate_db(conn: sqlite3.Connection) -> None:
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(leads)")
-    existing = {row[1] for row in cursor.fetchall()}
-    additions = {
-        "call_brief_path":  "TEXT",
-        "call_brief_at":    "TIMESTAMP",
-        "qualify_summary":  "TEXT",
-        "qualify_flags":    "TEXT",
-        "qualify_verdict":  "TEXT",
-        "qualify_score":    "INTEGER",
-        "email_subject":    "TEXT",
-    }
-    for col, dtype in additions.items():
-        if col not in existing:
-            cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} {dtype}")
-            log.info("Migration: added column '%s'", col)
-    conn.commit()
+log = logging.getLogger(__name__)
 
 
 # ── Brief generation via Claude ───────────────────────────────────────────────
@@ -203,6 +173,11 @@ class CloserAgent:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [CLOSER] %(levelname)s %(message)s",
+        handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()],
+    )
     if DRY_RUN:
         log.info("DRY RUN mode — no files will be written.")
     agent = CloserAgent()
