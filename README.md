@@ -1,36 +1,21 @@
-ai sales team
+# FIRE-SALE
 
+This project is an AI sales system for outbound lead generation, qualification, outreach, follow-up, and meeting preparation.
 
-# AI Sales System
+## System shape
+- `backend/db.py` — database and schema migration layer
+- `backend/agents/` — implementation for the sales workflow
+- `AGENTS/` — canonical agent specs
 
-## Overview
-This project builds a fully autonomous AI-powered sales team that handles:
+## Pipeline
+Lead generation → qualification → initial outreach → follow-up → call briefing
 
-- Lead generation
-- Prospect research
-- Cold outreach (email)
-- Meeting booking
-- Sales conversations
-- Follow-up and retention
+## Canonical docs
+- [AGENTS/README.md](AGENTS/README.md)
+- [AGENTS/director_agent.md](AGENTS/director_agent.md)
+- [AGENTS/lead_gen_agent.md](AGENTS/lead_gen_agent.md)
+- [AGENTS/outreach_agent.md](AGENTS/outreach_agent.md)
+- [AGENTS/followup_agent.md](AGENTS/followup_agent.md)
+- [AGENTS/closer_agent.md](AGENTS/closer_agent.md)
 
-The system is designed to start semi-manual and evolve into full automation.
-
-## Target Market
-- Small web design agencies
-- Solo operators
-- Businesses without structured sales systems
-
-## Core Goal
-Build a scalable system that generates consistent revenue with minimal human intervention.
-
----
-
-## System Components
-- Multi-agent architecture
-- Modular workflows
-- Replaceable tools (no vendor lock-in)
-
----
-
-## Current Status
-Phase 1 — Manual + AI-assisted build (in progress)
+The repo root docs are intentionally short and should not duplicate agent behavior details.

@@ -1,40 +1,11 @@
 # System Architecture
 
-## Model
-Multi-agent system with a Director
+This file has been reduced to a stable high-level summary only.
 
-## Agents
+## Architecture summary
+- `backend/db.py` stores lead state
+- `backend/agents/` contains the implementation
+- `AGENTS/` is the canonical source for agent behavior and responsibilities
 
-1. Director
-- Coordinates all agents
-- Assigns tasks
-- Maintains pipeline visibility
-
-2. Lead Generation Agent
-- Finds potential customers
-- Filters based on ICP
-
-3. Outreach Agent
-- Crafts and sends emails
-- Personalizes messaging
-
-4. Closer Agent
-- Handles sales conversations
-- Prepares call scripts
-
-5. Follow-Up Agent
-- Sends reminders
-- Maintains relationships
-
----
-
-## Data Flow
-
-Lead → Qualification → Outreach → Response → Booking → Closing → Follow-up
-
----
-
-## Future Integration
-- Paperclip AI
-- CRM (HubSpot / custom)
-- Email APIs
+## Source of truth
+Use the agent docs under `AGENTS/` instead of duplicating detailed behavior here.

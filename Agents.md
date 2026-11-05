@@ -1,23 +1,9 @@
 # Director Agent
 
-## Role
-Central coordinator of the sales system.
+This file is retained for compatibility but is no longer the canonical source of agent details.
 
-## Responsibilities
-- Assign tasks to agents
-- Monitor pipeline progress
-- Identify bottlenecks
-- Optimize workflow
+Use:
+- [AGENTS/README.md](AGENTS/README.md)
+- [AGENTS/director_agent.md](AGENTS/director_agent.md)
 
-## Inputs
-- Lead data
-- Outreach performance
-- Conversion metrics
-
-## Outputs
-- Task assignments
-- Strategy adjustments
-
-## Rules
-- Prioritize high-quality leads
-- Minimize wasted outreach
+The root-level summary intentionally avoids repeating the detailed behavior already captured in the agent specs under `AGENTS/`.
