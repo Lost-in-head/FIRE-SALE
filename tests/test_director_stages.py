@@ -50,6 +50,14 @@ def test_prospector_stage_runs_alone(director):
     assert order == ["prospector"]
 
 
+def test_single_stage_missing_config_does_not_crash(director):
+    def missing_key():
+        raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
+
+    director.STAGES["lead_gen"] = missing_key
+    director.DirectorAgent(stage="lead_gen").run()
+
+
 def test_dry_run_flag_is_visible_when_the_prospector_stage_starts(director, monkeypatch):
     monkeypatch.setenv("DRY_RUN", "false")
     seen = {}

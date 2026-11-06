@@ -180,6 +180,44 @@ def test_unsafe_osm_tags_are_rejected(sample_file):
         build_run_plan(cfg, campaign="", tags='shop=bakery"];out;')
 
 
+def test_empty_config_cannot_search(tmp_path):
+    from agents.prospecting_config import build_run_plan, load_prospecting_file
+
+    path = tmp_path / "empty.toml"
+    path.write_text(
+        """
+        [region]
+        name = "Greater Toronto Area"
+        geocode_suffix = "Ontario, Canada"
+        default_cities = ["Brampton"]
+
+        [region.places]
+        Brampton = "Brampton, Ontario, Canada"
+        """
+    )
+    cfg = load_prospecting_file(path)
+    with pytest.raises(ValueError, match="keywords or OSM tags"):
+        build_run_plan(cfg)
+
+
+def test_env_selects_a_custom_campaign_on_the_shipped_file(monkeypatch):
+    from agents.prospecting_config import plan_from_env
+
+    monkeypatch.setenv("PROSPECTOR_CITIES", "Vaughan")
+    monkeypatch.setenv("PROSPECTOR_CAMPAIGN", "")
+    monkeypatch.delenv("PROSPECTOR_CAMPAIGN", raising=False)
+    monkeypatch.setenv("PROSPECTOR_QUERIES", "pet grooming")
+    monkeypatch.setenv("PROSPECTOR_TAGS", "shop=pet_grooming")
+    monkeypatch.setenv("PROSPECTOR_MAX_LEADS", "3")
+    plan = plan_from_env()
+    assert plan.campaign is None
+    assert plan.cities == ("Vaughan",)
+    assert plan.place_queries == ("Vaughan, Ontario, Canada",)
+    assert plan.keywords == ("pet grooming",)
+    assert plan.tags == ("shop=pet_grooming",)
+    assert plan.max_leads == 3
+
+
 def test_env_overrides_and_blank_values_are_ignored(sample_file, monkeypatch):
     from agents.prospecting_config import plan_from_env
 

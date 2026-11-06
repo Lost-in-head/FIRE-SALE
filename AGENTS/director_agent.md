@@ -13,7 +13,7 @@ Coordinate the full sales pipeline and stage execution.
 Implementation: `backend/agents/director_agent.py`
 
 ## Stages
-Run in this order. Any stage can also be selected on its own with `--stage`.
+Run in this order. Any stage can also be selected on its own with `--stage`. A missing API key or a failed stage is logged and skipped, including when only one stage was requested.
 1. `prospector` — gather new leads from the configured provider (OpenStreetMap by default)
 2. `lead_gen` — qualify leads
 3. `outreach` — initial contact

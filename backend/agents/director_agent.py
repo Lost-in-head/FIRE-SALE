@@ -119,6 +119,18 @@ def _run_closer() -> dict:
     return agent.run()
 
 
+def _execute_stage(name: str, fn) -> dict:
+    """Run one stage. A missing key or a failed stage must not kill the process."""
+    try:
+        return fn()
+    except EnvironmentError as exc:
+        log.error("Stage '%s' skipped — missing config: %s", name, exc)
+        return {"error": str(exc)}
+    except Exception as exc:
+        log.error("Stage '%s' failed: %s", name, exc)
+        return {"error": str(exc)}
+
+
 # ── Main orchestrator ─────────────────────────────────────────────────────────
 
 STAGES = {
@@ -163,18 +175,11 @@ class DirectorAgent:
             if not fn:
                 log.error("Unknown stage '%s'. Valid: %s", self.stage, list(STAGES))
                 return
-            all_results[self.stage] = fn()
+            all_results[self.stage] = _execute_stage(self.stage, fn)
         else:
             # Full pipeline
             for name, fn in STAGES.items():
-                try:
-                    all_results[name] = fn()
-                except EnvironmentError as exc:
-                    log.error("Stage '%s' skipped — missing config: %s", name, exc)
-                    all_results[name] = {"error": str(exc)}
-                except Exception as exc:
-                    log.error("Stage '%s' failed: %s", name, exc)
-                    all_results[name] = {"error": str(exc)}
+                all_results[name] = _execute_stage(name, fn)
 
         _print_snapshot(_pipeline_snapshot(), "AFTER")
 

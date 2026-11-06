@@ -177,3 +177,81 @@ def test_unknown_provider_is_rejected():
 
     with pytest.raises(ValueError, match="google_places"):
         get_provider("google_places")
+
+
+def test_retries_transient_overpass_gateway_error_once(tmp_path):
+    class Flaky:
+        def __init__(self):
+            self.overpass_calls = 0
+
+        def __call__(self, url, *, method="GET", body=None, headers=None, timeout=30):
+            if "nominatim.openstreetmap.org" in url:
+                return 200, NOMINATIM
+            self.overpass_calls += 1
+            if self.overpass_calls == 1:
+                return 502, b"bad gateway"
+            return 200, OVERPASS
+
+    http = Flaky()
+    provider = _provider(tmp_path, http)
+    found = provider.search(_request())
+    assert http.overpass_calls == 2
+    assert [item.business_name for item in found] == ["King Street Bakery", "No Email Studio"]
+    assert provider.errors == []
+
+
+def test_server_error_is_reported_and_not_retried(tmp_path):
+    calls = {"overpass": 0}
+
+    def fetch(url, *, method="GET", body=None, headers=None, timeout=30):
+        if "nominatim.openstreetmap.org" in url:
+            return 200, NOMINATIM
+        calls["overpass"] += 1
+        return 500, b"unavailable"
+
+    provider = _provider(tmp_path, fetch)
+    assert provider.search(_request()) == []
+    assert calls["overpass"] == 1
+    assert any("500" in error for error in provider.errors)
+
+
+def test_timeout_is_retried_then_reported(tmp_path):
+    calls = {"overpass": 0}
+
+    def fetch(url, *, method="GET", body=None, headers=None, timeout=30):
+        if "nominatim.openstreetmap.org" in url:
+            return 200, NOMINATIM
+        calls["overpass"] += 1
+        raise TimeoutError("timed out")
+
+    provider = _provider(tmp_path, fetch)
+    assert provider.search(_request()) == []
+    assert calls["overpass"] == 2
+    assert any("TimeoutError" in error for error in provider.errors)
+
+
+def test_overpass_timeout_remark_is_reported(tmp_path):
+    payload = json.dumps({"remark": "runtime error: Query timed out"}).encode()
+    provider = _provider(tmp_path, FakeHTTP(overpass=payload))
+    assert provider.search(_request()) == []
+    assert any("timed out" in error.lower() for error in provider.errors)
+
+
+def test_malformed_overpass_elements_do_not_drop_valid_ones(tmp_path):
+    payload = json.dumps({
+        "elements": [
+            "not-an-element",
+            {"type": "node", "id": None, "tags": {"name": "Missing Id"}},
+            {"type": "node", "tags": {"name": "Also Missing"}},
+            {"type": "node", "id": 9, "tags": "bad-tags"},
+            {
+                "type": "node",
+                "id": 9,
+                "tags": {"name": "Kept Bakery", "website": "https://kept.example"},
+            },
+        ]
+    }).encode()
+    provider = _provider(tmp_path, FakeHTTP(overpass=payload))
+    found = provider.search(_request())
+    assert [item.business_name for item in found] == ["Kept Bakery"]
+    assert found[0].website == "https://kept.example"

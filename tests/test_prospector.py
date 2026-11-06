@@ -274,6 +274,73 @@ def test_stops_at_max_leads_and_geocodes_configured_places(prospector):
     assert request.limit == 2
 
 
+def test_max_leads_is_shared_across_cities(prospector):
+    agent_module, db_module, config_path = prospector
+    prospects = []
+    for city, prefix in (("Brampton", "b"), ("Mississauga", "m")):
+        for index in range(5):
+            prospects.append(_prospect(
+                source_id=f"node/{prefix}{index}",
+                city=city,
+                business_name=f"{city} {index}",
+                website=None,
+                email=None,
+            ))
+    provider = ListProvider(prospects)
+    agent = agent_module.ProspectorAgent(
+        plan=_plan(
+            agent_module,
+            config_path,
+            cities="Brampton,Mississauga",
+            max_leads=4,
+            find_emails=False,
+        ),
+        provider=provider,
+    )
+    result = agent.run()
+    assert result["leads_inserted"] == 4
+    assert [request.city for request in provider.requests] == ["Brampton", "Mississauga"]
+    assert [request.limit for request in provider.requests] == [2, 2]
+    cities = [row["city"] for row in _rows(db_module)]
+    assert cities.count("Brampton") == 2
+    assert cities.count("Mississauga") == 2
+
+
+def test_running_the_same_search_twice_inserts_nothing_the_second_time(prospector):
+    agent_module, db_module, config_path = prospector
+    prospects = [_prospect(website=None, email=None)]
+    plan = _plan(agent_module, config_path, find_emails=False)
+
+    first = agent_module.ProspectorAgent(plan=plan, provider=ListProvider(prospects)).run()
+    second = agent_module.ProspectorAgent(plan=plan, provider=ListProvider(prospects)).run()
+
+    assert first["leads_inserted"] == 1
+    assert second["leads_inserted"] == 0
+    assert second["skipped_duplicate"] == 1
+    assert second["duplicates"]["source"] == 1
+    assert len(_rows(db_module)) == 1
+
+
+def test_provider_errors_are_counted_without_failing_the_run(prospector):
+    agent_module, db_module, config_path = prospector
+
+    class Exploding:
+        name = "explode"
+        errors = []
+
+        def search(self, request):
+            self.errors.append(f"HTTP 502 for {request.city}")
+            raise TimeoutError("overpass timed out")
+
+    result = agent_module.ProspectorAgent(
+        plan=_plan(agent_module, config_path, cities="Brampton", find_emails=False),
+        provider=Exploding(),
+    ).run()
+    assert result["leads_inserted"] == 0
+    assert result["errors"]
+    assert _rows(db_module) == []
+
+
 def test_contact_name_is_stored_when_osm_has_one(prospector):
     agent_module, db_module, config_path = prospector
     agent = agent_module.ProspectorAgent(

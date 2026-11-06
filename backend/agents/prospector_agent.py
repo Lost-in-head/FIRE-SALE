@@ -137,7 +137,9 @@ class ProspectorAgent:
         found = 0
         emails_found = 0
         duplicates = {"source": 0, "website": 0, "email": 0}
+        errors: list[str] = []
         remaining = self.plan.max_leads
+        city_plan = list(zip(self.plan.cities, self.plan.place_queries))
 
         log.info(
             "Prospecting campaign=%s provider=%s cities=%s dry_run=%s",
@@ -148,21 +150,32 @@ class ProspectorAgent:
         )
 
         try:
-            for city, place_query in zip(self.plan.cities, self.plan.place_queries):
+            for city_index, (city, place_query) in enumerate(city_plan):
                 if remaining <= 0:
                     break
+                # Share the remaining cap so the first city cannot consume
+                # the whole run and leave the other configured cities unsearched.
+                cities_left = len(city_plan) - city_index
+                share = min(remaining, -(-remaining // cities_left))
                 request = SearchRequest(
                     city=city,
                     place_query=place_query,
                     keywords=self.plan.keywords,
                     tags=self.plan.tags,
-                    limit=remaining,
+                    limit=share,
                 )
+                provider_errors = getattr(self.provider, "errors", None)
+                recorded = len(provider_errors) if isinstance(provider_errors, list) else None
                 try:
                     prospects = self.provider.search(request)
                 except Exception as exc:
                     log.error("Search failed for %s: %s", city, exc)
+                    errors.append(f"{city}: {exc}")
                     continue
+                if recorded is not None:
+                    errors.extend(
+                        f"{city}: {message}" for message in provider_errors[recorded:]
+                    )
                 for prospect in prospects:
                     if remaining <= 0:
                         break
@@ -211,6 +224,7 @@ class ProspectorAgent:
             "provider": self.plan.provider,
             "dry_run": self.plan.dry_run,
             "cities": list(self.plan.cities),
+            "errors": errors,
         }
         log.info("Prospector complete. %s", result)
         return result

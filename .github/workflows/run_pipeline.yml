@@ -1,6 +1,10 @@
 name: Run FIRE-SALE Pipeline
 
 on:
+  # Tests run on every push and pull request. The live pipeline does not.
+  push:
+  pull_request:
+
   # Run the full pipeline every day at 08:00 UTC
   schedule:
     - cron: "0 8 * * *"
@@ -26,7 +30,29 @@ on:
         default: false
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
   run-pipeline:
+    # Live Nominatim/Overpass plus email sending. Not part of pull-request CI.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read

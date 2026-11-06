@@ -76,6 +76,8 @@ A candidate is skipped when it matches an existing lead in this order:
 
 `backend/db.py` adds `source`, `source_id`, `city`, `phone`, `address`, and `prospected_at` to existing databases. `email` stays unique and nullable, so several leads may have no email. Dry-run resolves and dedupes without writing leads.
 
+`max_leads` is a cap for the whole run, split across the configured cities so the first city does not consume every slot. A transient Overpass response (429, 502, 503, 504) or a timeout is retried once and then recorded on the run result as an error. A 500 is not retried. Malformed elements are skipped.
+
 ## Known limitations
 - OpenStreetMap coverage is uneven. Many small businesses have no website, phone, or email on the map, and some have no entry at all.
 - Name and tag search misses businesses whose OSM tags do not match the campaign. Fix that in the config file, not in code.

@@ -62,7 +62,7 @@ def build_overpass_query(
         clauses.append(f'  nwr["{key}"="{value}"]{bbox};')
     lines = "\n".join(clauses)
     return (
-        "[out:json][timeout:25];\n"
+        "[out:json][timeout:40];\n"
         "(\n"
         f"{lines}\n"
         ");\n"
@@ -140,6 +140,7 @@ class OsmOverpassProvider:
         self.sleep = sleep or time.sleep
         self.user_agent = user_agent or default_user_agent()
         self.min_interval = min_interval
+        self.errors: list[str] = []
         if cache_path is None:
             root = Path(__file__).resolve().parents[3]
             cache_path = root / "data" / "nominatim_cache.json"
@@ -169,7 +170,7 @@ class OsmOverpassProvider:
             OVERPASS_URL,
             method="POST",
             body=urllib.parse.urlencode({"data": query}).encode(),
-            timeout=40,
+            timeout=90,
             extra_headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
         if payload is None:
@@ -177,13 +178,17 @@ class OsmOverpassProvider:
         try:
             parsed = json.loads(payload.decode("utf-8", errors="replace"))
         except json.JSONDecodeError:
-            log.warning("Overpass returned non-JSON for %s", request.city)
+            message = f"Overpass returned non-JSON for {request.city}"
+            log.warning("%s", message)
+            self.errors.append(message)
             return []
         elements = parsed.get("elements") if isinstance(parsed, dict) else None
         if not elements:
             remark = parsed.get("remark") if isinstance(parsed, dict) else None
             if remark:
-                log.warning("Overpass remark for %s: %s", request.city, remark)
+                message = f"Overpass remark for {request.city}: {remark}"
+                log.warning("%s", message)
+                self.errors.append(message)
             return []
         return self._prospects(elements, request.city, limit)
 
@@ -223,31 +228,52 @@ class OsmOverpassProvider:
         timeout: float = 30,
         extra_headers: dict | None = None,
     ) -> bytes | None:
-        self.sleep(self.min_interval)
+        """GET/POST once, and retry once on a timeout or a transient gateway status."""
         headers = {"User-Agent": self.user_agent}
         if extra_headers:
             headers.update(extra_headers)
-        try:
-            status, payload = self.fetch(
-                url,
-                method=method,
-                body=body,
-                headers=headers,
-                timeout=timeout,
-            )
-        except Exception as exc:
-            log.warning("Request failed for %s: %s", url, exc)
+        retriable = {429, 502, 503, 504}
+        target = url.split("?", 1)[0]
+        last_detail = "request failed"
+        for attempt in (1, 2):
+            self.sleep(self.min_interval)
+            try:
+                status, payload = self.fetch(
+                    url,
+                    method=method,
+                    body=body,
+                    headers=headers,
+                    timeout=timeout,
+                )
+            except Exception as exc:
+                last_detail = f"{type(exc).__name__}: {exc}"
+                if attempt == 1:
+                    log.warning("%s — retrying once (%s)", last_detail, target)
+                    continue
+                log.warning("Request failed for %s: %s", target, exc)
+                self.errors.append(last_detail)
+                return None
+            if status == 200:
+                return payload
+            last_detail = f"HTTP {status} from {target}"
+            if status in retriable and attempt == 1:
+                log.warning("%s — retrying once", last_detail)
+                continue
+            log.warning("%s", last_detail)
+            self.errors.append(last_detail)
             return None
-        if status != 200:
-            log.warning("HTTP %s from %s", status, url)
-            return None
-        return payload
+        self.errors.append(last_detail)
+        return None
 
     def _prospects(self, elements: list, city: str, limit: int) -> list[Prospect]:
         found: list[Prospect] = []
         seen: set[str] = set()
         for element in elements:
+            if not isinstance(element, dict):
+                continue
             tags = element.get("tags") or {}
+            if not isinstance(tags, dict):
+                continue
             business_name = str(tags.get("name") or "").strip()
             if not business_name:
                 continue
