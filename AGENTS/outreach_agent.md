@@ -9,6 +9,7 @@ Implementation: `backend/agents/outreach_agent.py`
 ## Inputs
 - leads with `status = 'qualified'`
 - `last_outreach_at IS NULL`
+- a non-empty `email` (qualified leads without one are skipped and left unchanged)
 
 ## Output
 Updates:

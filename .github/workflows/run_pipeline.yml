@@ -14,6 +14,7 @@ on:
         type: choice
         options:
           - ""
+          - prospector
           - lead_gen
           - outreach
           - followup
@@ -63,6 +64,15 @@ jobs:
           SMTP_PORT:           ${{ vars.SMTP_PORT || '587' }}
           SCORE_DEAD_THRESHOLD: ${{ vars.SCORE_DEAD_THRESHOLD || '4' }}
           DRY_RUN:             ${{ inputs.dry_run || 'false' }}
+          # Blank values fall through to config/prospecting.toml (GTA defaults).
+          PROSPECTOR_CITIES:        ${{ vars.PROSPECTOR_CITIES }}
+          PROSPECTOR_CAMPAIGN:      ${{ vars.PROSPECTOR_CAMPAIGN }}
+          PROSPECTOR_QUERIES:       ${{ vars.PROSPECTOR_QUERIES }}
+          PROSPECTOR_TAGS:          ${{ vars.PROSPECTOR_TAGS }}
+          PROSPECTOR_MAX_LEADS:     ${{ vars.PROSPECTOR_MAX_LEADS }}
+          PROSPECTOR_PROVIDER:      ${{ vars.PROSPECTOR_PROVIDER }}
+          PROSPECTOR_FIND_EMAILS:   ${{ vars.PROSPECTOR_FIND_EMAILS }}
+          PROSPECTOR_CONTACT_EMAIL: ${{ vars.PROSPECTOR_CONTACT_EMAIL }}
         run: |
           STAGE_ARG=""
           if [ -n "${{ inputs.stage }}" ]; then

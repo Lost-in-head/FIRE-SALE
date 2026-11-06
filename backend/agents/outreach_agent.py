@@ -143,6 +143,10 @@ class OutreachAgent:
         for lead in leads:
             lead_id = lead["id"]
             label   = f"[Lead {lead_id} | {lead['email']}]"
+            if not (lead["email"] or "").strip():
+                log.info("%s No email — left for a later contact channel.", label)
+                results["skipped"] += 1
+                continue
 
             try:
                 subject, body = _generate_email(self.client, lead)

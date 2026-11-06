@@ -1,2 +1,5 @@
 anthropic==0.97.0
 pytest>=8.0.0
+
+# The prospector talks to Nominatim and Overpass with the standard library
+# (urllib, tomllib). Search-engine HTML scrapers are intentionally not dependencies.
