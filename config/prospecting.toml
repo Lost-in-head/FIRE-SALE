@@ -1,0 +1,54 @@
+# Editable prospecting targets for FIRE-SALE.
+# Cities and business types live here so a run can follow whatever offer
+# is being sold. Python does not contain a category list.
+#
+# A default run searches `region.default_cities` with `default_campaign`.
+# Override either one from the CLI or the environment for a single run.
+
+# Campaign used when the run does not name one and does not pass its own
+# keywords or tags. Change this when the offer changes.
+default_campaign = "web_design"
+
+[region]
+name = "Greater Toronto Area"
+# Added when a city is not listed under region.places and is not already
+# a full "City, Region" query. Keeps Nominatim inside Ontario.
+geocode_suffix = "Ontario, Canada"
+# Cities searched on a default run. Add a name to widen the run.
+default_cities = ["Brampton", "Mississauga"]
+
+# Nominatim queries for GTA places. Add a line to pin another city.
+# A city that is not listed still works: "<name>, <geocode_suffix>".
+[region.places]
+Brampton = "Brampton, Ontario, Canada"
+Mississauga = "Mississauga, Ontario, Canada"
+Toronto = "Toronto, Ontario, Canada"
+Vaughan = "Vaughan, Ontario, Canada"
+Markham = "Markham, Ontario, Canada"
+Oakville = "Oakville, Ontario, Canada"
+
+[run]
+max_leads = 20
+provider = "osm"
+find_emails = true
+request_delay_seconds = 1.1
+
+# Each campaign maps one offer to keywords and OSM tags.
+# keywords match the business name. tags are exact key=value OSM filters.
+# A run uses a keyword when ANY keyword matches, and a tag when ANY tag matches.
+# Add a new [campaigns.<name>] table to target a different offer.
+
+[campaigns.web_design]
+description = "Small web design studios and freelancers. Replace this campaign when the offer changes."
+keywords = ["web design", "website designer"]
+tags = ["office=graphic_design", "craft=graphic_designer"]
+
+[campaigns.home_trades]
+description = "Home-service trades."
+keywords = ["plumber", "electrician", "hvac"]
+tags = ["craft=plumber", "craft=electrician", "craft=hvac"]
+
+[campaigns.food_and_drink]
+description = "Restaurants, cafes, and similar venues."
+keywords = ["restaurant", "cafe"]
+tags = ["amenity=restaurant", "amenity=cafe", "amenity=fast_food"]

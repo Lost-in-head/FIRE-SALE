@@ -105,6 +105,48 @@ class TestMigrateDb:
         assert "call_brief_path" in cols
         assert "notes" in cols
 
+    def test_adds_prospector_columns_to_an_existing_database(self, tmp_db):
+        """Older databases predate source identity and must keep their rows."""
+        conn = tmp_db.get_connection()
+        conn.execute("""
+            CREATE TABLE leads (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT,
+                email         TEXT UNIQUE,
+                business_name TEXT,
+                status        TEXT DEFAULT 'new',
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "INSERT INTO leads (name, email, business_name) VALUES (?, ?, ?)",
+            ("Ada", "ada@example.com", "Ada Studio"),
+        )
+        conn.commit()
+
+        tmp_db.migrate_db(conn)
+
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(leads)")
+        cols = {row[1] for row in cursor.fetchall()}
+        for column in ("source", "source_id", "city", "phone", "address", "prospected_at"):
+            assert column in cols
+
+        preserved = conn.execute("SELECT email, business_name FROM leads").fetchone()
+        assert preserved == ("ada@example.com", "Ada Studio")
+
+        conn.execute(
+            "INSERT INTO leads (name, business_name, source, source_id) VALUES (?, ?, ?, ?)",
+            ("No Email", "Walk-in Bakery", "osm", "node/55"),
+        )
+        conn.execute(
+            "INSERT INTO leads (name, business_name, source, source_id) VALUES (?, ?, ?, ?)",
+            ("Also No Email", "Second Bakery", "osm", "node/56"),
+        )
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM leads").fetchone()[0] == 3
+        conn.close()
+
     def test_idempotent_migration(self, tmp_db):
         """Running migrate_db multiple times must not raise."""
         tmp_db.init_db()

@@ -110,6 +110,7 @@ sessions/
 # Generated leads / sensitive data
 DATA/leads.csv
 DATA/leads.json
+data/nominatim_cache.json
 
 # Exported reports
 exports/

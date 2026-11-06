@@ -100,7 +100,7 @@ Evaluate this lead and return ONLY a JSON object — no preamble, no markdown fe
 Lead data:
 - Name: {lead['name'] or 'Unknown'}
 - Business: {lead['business_name'] or 'Unknown'}
-- Email: {lead['email']}
+- Email: {lead['email'] or 'not available'}
 - Website content snippet: {website_text or 'Not available'}
 
 Ideal Customer Profile (ICP):

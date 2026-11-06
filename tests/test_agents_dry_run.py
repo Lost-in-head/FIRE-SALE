@@ -181,6 +181,29 @@ class TestOutreachAgentDryRun:
         assert lead["last_outreach_at"] is None     # no DB write
         assert results["sent"] == 1
 
+    def test_skips_qualified_lead_without_email(self, tmp_db, monkeypatch):
+        import importlib
+        import agents.outreach_agent as mod
+        importlib.reload(mod)
+
+        conn = tmp_db.get_connection()
+        conn.execute(
+            "INSERT INTO leads (name, email, business_name, status) VALUES (?, NULL, ?, 'qualified')",
+            ("No Email", "No Email Co"),
+        )
+        conn.commit()
+        conn.close()
+
+        mock_client = MagicMock()
+        with patch.object(mod.OutreachAgent, "__init__", lambda self: None):
+            agent = mod.OutreachAgent.__new__(mod.OutreachAgent)
+            agent.client = mock_client
+            results = agent.run()
+
+        assert results["skipped"] == 1
+        assert results["sent"] == 0
+        assert mock_client.messages.create.call_count == 0
+
 
 # ─── FollowUpAgent dry-run ────────────────────────────────────────────────────
 

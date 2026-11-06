@@ -8,11 +8,12 @@ This project is an AI sales system for outbound lead generation, qualification, 
 - `AGENTS/` — canonical agent specs
 
 ## Pipeline
-Lead generation → qualification → initial outreach → follow-up → call briefing
+Prospecting → qualification → initial outreach → follow-up → call briefing
 
 ## Canonical docs
 - [AGENTS/README.md](AGENTS/README.md)
 - [AGENTS/director_agent.md](AGENTS/director_agent.md)
+- [AGENTS/prospector_agent.md](AGENTS/prospector_agent.md)
 - [AGENTS/lead_gen_agent.md](AGENTS/lead_gen_agent.md)
 - [AGENTS/outreach_agent.md](AGENTS/outreach_agent.md)
 - [AGENTS/followup_agent.md](AGENTS/followup_agent.md)

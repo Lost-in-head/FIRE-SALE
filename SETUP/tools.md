@@ -13,5 +13,5 @@
 - Scheduler (cron / GitHub Actions) — run Director on a regular cadence
 
 ## Phase 3
-- Automated lead scraping (Clutch, Google Maps, etc.)
+- Additional lead providers behind the prospector interface (the free OpenStreetMap provider is already in the pipeline)
 - Full AI integration across all touchpoints

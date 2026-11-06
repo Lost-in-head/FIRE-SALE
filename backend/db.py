@@ -76,12 +76,29 @@ def migrate_db(conn: sqlite3.Connection) -> None:
 
         # Notes
         "notes":            "TEXT",
+
+        # Prospector identity. email stays nullable so a business can be
+        # stored before a contact address is known. SQLite UNIQUE allows
+        # multiple NULLs, so leads without an email do not collide.
+        "source":           "TEXT",
+        "source_id":        "TEXT",
+        "city":             "TEXT",
+        "phone":            "TEXT",
+        "address":          "TEXT",
+        "prospected_at":    "TIMESTAMP",
     }
 
     for col, dtype in additions.items():
         if col not in existing:
             cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} {dtype}")
             log.debug("Migration: added column '%s %s'", col, dtype)
+
+    # Same OSM object (or the same id from another provider) is one lead.
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_source_identity
+        ON leads(source, source_id)
+        WHERE source IS NOT NULL AND source_id IS NOT NULL
+    """)
 
     conn.commit()
 
