@@ -11,12 +11,9 @@ After 3 follow-ups with no response, the lead is moved to 'ghosted'.
 
 import os
 import sys
-import json
 import logging
 import sqlite3
-import smtplib
 import time
-from email.mime.text import MIMEText
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -24,15 +21,14 @@ import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
+from agents.mailer import assert_outbound_allowed, send_email  # noqa: E402
+from agents.messaging import followup_prompt, parse_json_object  # noqa: E402
+from agents.reply_detector import detect_replies  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN       = os.getenv("DRY_RUN", "false").lower() == "true"
 LOG_PATH      = BASE_DIR / "fire_sale.log"
-SMTP_HOST     = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
-FROM_EMAIL    = os.getenv("EMAIL_ADDRESS")
-FROM_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 FROM_NAME     = os.getenv("SENDER_NAME", "Chris")
 BOOKING_LINK  = os.getenv("BOOKING_LINK", "")
 REQUEST_DELAY = float(os.getenv("FOLLOWUP_DELAY", "3.0"))
@@ -70,39 +66,12 @@ def _is_eligible(lead: sqlite3.Row) -> bool:
 # ── Claude email generation ───────────────────────────────────────────────────
 
 def _generate_followup(client: anthropic.Anthropic, lead: sqlite3.Row, touch: int) -> tuple[str, str]:
-    touch_instructions = {
-        1: "Soft, friendly nudge. Reference that you emailed them recently. Keep it very short (2-3 sentences). No guilt-tripping.",
-        2: "Add a small value hook — one concrete thing you could help them with, specific to their type of business. 3-4 sentences.",
-        3: "Graceful final touch. Let them know this is your last email. Leave the door open. Warm, not passive-aggressive. 2-3 sentences.",
-    }
-
-    original_subject = lead["email_subject"] or "our last email"
-    name = lead["name"] or "there"
-    business = lead["business_name"] or "your business"
-    summary = lead["qualify_summary"] or ""
-
-    booking_cta = (
-        f"- If appropriate for this touch, include the booking link: {BOOKING_LINK}"
-        if BOOKING_LINK
-        else "- End with a soft CTA or an open door"
+    prompt = followup_prompt(
+        lead,
+        touch,
+        sender_name=FROM_NAME,
+        booking_link=BOOKING_LINK,
     )
-
-    prompt = f"""You are writing follow-up email #{touch} on behalf of {FROM_NAME}, who helps small web design agencies and freelancers get more clients.
-
-Lead: {name} at {business}
-Context: {summary}
-Original email subject: "{original_subject}"
-Touch #{touch} instructions: {touch_instructions.get(touch, '')}
-
-Rules:
-- Match the tone of the original email (conversational, direct, no corporate fluff)
-- Do NOT repeat the same message
-- Subject line should reference the thread naturally (e.g. "Re: {original_subject}" or a short variant)
-- {booking_cta}
-
-Return ONLY a JSON object: {{"subject": "...", "body": "..."}}
-No markdown, no preamble.
-"""
 
     response = client.messages.create(
         model="claude-opus-4-5",
@@ -110,33 +79,8 @@ No markdown, no preamble.
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    data = json.loads(raw)
+    data = parse_json_object(response.content[0].text)
     return data["subject"], data["body"]
-
-
-# ── SMTP send ─────────────────────────────────────────────────────────────────
-
-def _send_email(to_email: str, subject: str, body: str) -> None:
-    if not FROM_EMAIL or not FROM_PASSWORD:
-        raise EnvironmentError("EMAIL_ADDRESS or EMAIL_APP_PASSWORD not set.")
-
-    msg = MIMEText(body, "plain")
-    msg["Subject"] = subject
-    msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
-    msg["To"]      = to_email
-
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(FROM_EMAIL, FROM_PASSWORD)
-        server.send_message(msg)
 
 
 # ── Main agent class ──────────────────────────────────────────────────────────
@@ -155,6 +99,12 @@ class FollowUpAgent:
         conn.row_factory = sqlite3.Row
         migrate_db(conn)
         cursor = conn.cursor()
+        reply_result = detect_replies(conn)
+        log.info("Reply check: %s", reply_result)
+        replied_now = {
+            addr.casefold()
+            for addr in (reply_result.get("addresses") or [])
+        }
 
         cursor.execute("""
             SELECT * FROM leads
@@ -164,14 +114,24 @@ class FollowUpAgent:
         """, (MAX_FOLLOWUPS,))
         leads = cursor.fetchall()
         log.info("Checking %d contacted leads for follow-up eligibility.", len(leads))
+        if any(_is_eligible(lead) for lead in leads) and not DRY_RUN:
+            try:
+                assert_outbound_allowed()
+            except EnvironmentError:
+                conn.close()
+                raise
 
-        results = {"sent": 0, "ghosted": 0, "not_due": 0, "errors": 0}
+        results = {"sent": 0, "ghosted": 0, "not_due": 0, "errors": 0, "replied": 0}
 
         for lead in leads:
             lead_id    = lead["id"]
             label      = f"[Lead {lead_id} | {lead['email']}]"
             count      = lead["follow_up_count"] or 0
             next_touch = count + 1
+
+            if (lead["email"] or "").strip().casefold() in replied_now:
+                results["replied"] += 1
+                continue
 
             if not _is_eligible(lead):
                 results["not_due"] += 1
@@ -185,7 +145,13 @@ class FollowUpAgent:
                 new_status = "ghosted" if new_count >= MAX_FOLLOWUPS else "contacted"
 
                 if not DRY_RUN:
-                    _send_email(lead["email"], subject, body)
+                    send_email(
+                        lead["email"],
+                        subject,
+                        body,
+                        lead_name=lead["name"] or "",
+                        business=lead["business_name"] or "",
+                    )
                     cursor.execute("""
                         UPDATE leads SET
                             follow_up_count  = ?,

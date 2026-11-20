@@ -1,13 +1,9 @@
 # Offer Definition
 
-## Core Offer
-Help businesses get more clients through improved outreach systems.
+Two offers. The wording used in prompts is `offer`, `sender_pitch`, and `service_area` on each campaign in `config/prospecting.toml`.
 
-## Value
-- More leads
-- Better conversion
-- Less manual effort
+## Contracting and tree removal
+On-site contracting and tree removal for organizations that have property to maintain: hazard trees, storm cleanup, lot clearing, and general site work.
 
-## Delivery
-- Done-for-you setup
-- AI-assisted workflows
+## Website design
+A straightforward website for an independent local business that has no real site, or only a social or free-builder page.

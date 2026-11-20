@@ -21,6 +21,7 @@ on:
           - prospector
           - lead_gen
           - outreach
+          - replies
           - followup
           - closer
       dry_run:
@@ -70,14 +71,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # Restore the newest saved database. The exact key includes this run id,
+      # so it misses, and the prefix matches fire-sale-db-<os>-<previous run id>.
+      # An older exact key fire-sale-db-<os> (with no run id) is not a match.
       - name: Restore lead database from cache
         id: db-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: data/fire_sale_leads.sqlite3
-          key: fire-sale-db-${{ runner.os }}
+          key: fire-sale-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            fire-sale-db-
+            fire-sale-db-${{ runner.os }}-
 
       - name: Run Director Agent
         env:
@@ -86,11 +90,20 @@ jobs:
           EMAIL_APP_PASSWORD:  ${{ secrets.EMAIL_APP_PASSWORD }}
           SENDER_NAME:         ${{ secrets.SENDER_NAME }}
           BOOKING_LINK:        ${{ secrets.BOOKING_LINK }}
-          SMTP_HOST:           ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_HOST:           ${{ vars.SMTP_HOST }}
           SMTP_PORT:           ${{ vars.SMTP_PORT || '587' }}
+          SMTP_STARTTLS:       ${{ vars.SMTP_STARTTLS || 'true' }}
+          TEST_MODE:           ${{ vars.TEST_MODE }}
+          TEST_RECIPIENT:      ${{ secrets.TEST_RECIPIENT }}
+          IMAP_HOST:           ${{ vars.IMAP_HOST }}
+          IMAP_PORT:           ${{ vars.IMAP_PORT || '993' }}
+          IMAP_SSL:            ${{ vars.IMAP_SSL || 'true' }}
+          IMAP_USER:           ${{ secrets.IMAP_USER }}
+          IMAP_PASSWORD:       ${{ secrets.IMAP_PASSWORD }}
           SCORE_DEAD_THRESHOLD: ${{ vars.SCORE_DEAD_THRESHOLD || '4' }}
           DRY_RUN:             ${{ inputs.dry_run || 'false' }}
-          # Blank values fall through to config/prospecting.toml (GTA defaults).
+          # Blank prospector values fall through to config/prospecting.toml.
+          PROSPECTOR_AREAS:         ${{ vars.PROSPECTOR_AREAS }}
           PROSPECTOR_CITIES:        ${{ vars.PROSPECTOR_CITIES }}
           PROSPECTOR_CAMPAIGN:      ${{ vars.PROSPECTOR_CAMPAIGN }}
           PROSPECTOR_QUERIES:       ${{ vars.PROSPECTOR_QUERIES }}
@@ -100,6 +113,26 @@ jobs:
           PROSPECTOR_FIND_EMAILS:   ${{ vars.PROSPECTOR_FIND_EMAILS }}
           PROSPECTOR_CONTACT_EMAIL: ${{ vars.PROSPECTOR_CONTACT_EMAIL }}
         run: |
+          mode=$(printf '%s' "${TEST_MODE:-}" | tr '[:upper:]' '[:lower:]')
+          case "$mode" in
+            false|0|off|no)
+              export TEST_MODE=false
+              echo "TEST_MODE is explicitly off. Prospects can be emailed when SMTP is configured."
+              if [ -z "${EMAIL_ADDRESS}" ] || [ -z "${EMAIL_APP_PASSWORD}" ] || [ -z "${SMTP_HOST}" ]; then
+                echo "::warning::TEST_MODE is off but email settings are incomplete. Email stages will skip."
+              fi
+              ;;
+            *)
+              export TEST_MODE=true
+              echo "::notice::TEST_MODE is on. Outbound email is redirected to TEST_RECIPIENT and is not sent to prospects."
+              if [ -z "${TEST_RECIPIENT}" ]; then
+                echo "::warning::TEST_MODE is on but TEST_RECIPIENT is empty. Email stages will refuse to send."
+              fi
+              ;;
+          esac
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY is not set. Scoring and copy stages will skip."
+          fi
           STAGE_ARG=""
           if [ -n "${{ inputs.stage }}" ]; then
             STAGE_ARG="--stage ${{ inputs.stage }}"
@@ -109,6 +142,13 @@ jobs:
             DRY_ARG="--dry-run"
           fi
           python backend/agents/director_agent.py $STAGE_ARG $DRY_ARG
+
+      - name: Checkpoint lead database
+        if: always()
+        run: |
+          if [ -f data/fire_sale_leads.sqlite3 ]; then
+            python -c "import sqlite3; c=sqlite3.connect('data/fire_sale_leads.sqlite3'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+          fi
 
       - name: Save lead database to cache
         if: always()

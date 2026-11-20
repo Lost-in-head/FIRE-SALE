@@ -10,12 +10,13 @@ Auto-marks leads scoring <= 4 as 'dead'.
 
 import os
 import sys
-import json
 import logging
 import sqlite3
 import time
-from pathlib import Path
+import urllib.request
 from datetime import datetime
+from html.parser import HTMLParser
+from pathlib import Path
 
 import anthropic
 
@@ -23,6 +24,7 @@ import anthropic
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 
+from agents.messaging import parse_json_object, score_prompt  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -39,9 +41,6 @@ log = logging.getLogger(__name__)
 def _fetch_website_text(url: str) -> str:
     """Fetch and extract visible text from a URL. Returns empty string on failure."""
     try:
-        import urllib.request
-        from html.parser import HTMLParser
-
         class _TextExtractor(HTMLParser):
             def __init__(self):
                 super().__init__()
@@ -93,41 +92,7 @@ def _score_lead(client: anthropic.Anthropic, lead: sqlite3.Row) -> dict:
     if lead["website_url"]:
         website_text = _fetch_website_text(lead["website_url"])
 
-    prompt = f"""You are a sales qualification expert for an outreach agency that helps small web design agencies and freelancers get more clients.
-
-Evaluate this lead and return ONLY a JSON object — no preamble, no markdown fences.
-
-Lead data:
-- Name: {lead['name'] or 'Unknown'}
-- Business: {lead['business_name'] or 'Unknown'}
-- Email: {lead['email'] or 'not available'}
-- Website content snippet: {website_text or 'Not available'}
-
-Ideal Customer Profile (ICP):
-- Small web design agency or freelancer
-- Needs more clients
-- No strong existing outreach/sales system
-- Active business, some online presence
-
-Red flags:
-- Large established agency (likely already has sales)
-- No online presence at all (can't verify legitimacy)
-- Looks like a spam/fake business
-
-Return this exact JSON structure:
-{{
-  "score": <integer 1-10>,
-  "verdict": "<HOT|WARM|COLD>",
-  "flags": "<comma-separated list of positive and negative signals>",
-  "action": "<one-sentence recommended next action>",
-  "summary": "<2-sentence plain-English summary of why this lead scored this way>"
-}}
-
-Scoring guide:
-- 8-10: HOT — clear ICP fit, strong signal they need help
-- 5-7: WARM — plausible fit, some uncertainty
-- 1-4: COLD — poor fit or insufficient data
-"""
+    prompt = score_prompt(lead, website_text)
 
     response = client.messages.create(
         model="claude-opus-4-5",
@@ -135,15 +100,7 @@ Scoring guide:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw = response.content[0].text.strip()
-    # Strip any accidental markdown fences
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    data = json.loads(raw)
+    data = parse_json_object(response.content[0].text)
 
     # Normalise
     data["score"] = max(1, min(10, int(data.get("score", 1))))
