@@ -37,7 +37,12 @@ def test_contracting_and_web_design_prompts_sell_different_offers():
     assert "contract" in trees.casefold()
     assert "golf course" in trees.casefold()
     assert "prince_edward_county" in trees
-    assert "613-555-0100" in trees
+    assert "Phone: listed" in trees
+    assert "Address: listed" in trees
+    assert "Email: listed" in trees
+    assert "613-555-0100" not in trees
+    assert "1 County Road" not in trees
+    assert "sam@example.com" not in trees
     assert "small web design" not in trees.casefold()
 
     sites = outreach_prompt(
@@ -58,6 +63,14 @@ def test_contracting_and_web_design_prompts_sell_different_offers():
     brief = closer_prompt(_lead(), sender_name="Chris", cfg=cfg)
     assert "tree" in brief.casefold()
     assert "lead generation" not in brief.casefold()
+    assert "613-555-0100" not in brief
+    assert "sam@example.com" not in brief
+    assert "1 County Road" not in brief
+
+    missing = score_prompt(_lead(phone="", address="", email=""), "", cfg)
+    assert "Phone: none listed" in missing
+    assert "Address: none listed" in missing
+    assert "Email: none listed" in missing
 
 
 def test_website_snippet_is_data_not_instructions():

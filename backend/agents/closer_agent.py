@@ -55,7 +55,25 @@ def _generate_brief(client: anthropic.Anthropic, lead: sqlite3.Row) -> str:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    return response.content[0].text.strip()
+    return response.content[0].text.strip() + _contact_block(lead)
+
+
+def _contact_block(lead: sqlite3.Row) -> str:
+    """Keep reachability on the local brief. These values are not sent to the model."""
+    def value(key: str) -> str:
+        try:
+            raw = lead[key]
+        except (KeyError, IndexError):
+            return "none"
+        text = "" if raw is None else str(raw).strip()
+        return text or "none"
+
+    return (
+        "\n\n## Contact on file\n"
+        f"- Email: {value('email')}\n"
+        f"- Phone: {value('phone')}\n"
+        f"- Address: {value('address')}\n"
+    )
 
 
 # ── File writer ───────────────────────────────────────────────────────────────
