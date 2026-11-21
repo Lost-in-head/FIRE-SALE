@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Brampton alerts</title>
+  <entry>
+    <id>urn:eccc:fog</id>
+    <title>YELLOW ADVISORY - FOG, Mississauga - Brampton</title>
+    <updated>2026-11-21T10:00:00Z</updated>
+    <link href="https://weather.gc.ca/warnings/fog"/>
+    <summary>Fog advisory for the morning commute.</summary>
+  </entry>
+  <entry>
+    <id>urn:eccc:wind</id>
+    <title>WIND WARNING, Mississauga - Brampton</title>
+    <updated>2026-11-21T12:00:00Z</updated>
+    <link href="https://weather.gc.ca/warnings/wind"/>
+    <summary>Strong wind gusts. Secure loose objects.</summary>
+  </entry>
+  <entry>
+    <id>urn:eccc:none</id>
+    <title>No alerts in effect, somewhere else</title>
+    <updated>2026-11-21T12:00:00Z</updated>
+    <summary>No alerts in effect.</summary>
+  </entry>
+</feed>

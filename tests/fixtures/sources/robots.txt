@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /search?fmt=JSON
+Disallow: /private
+Allow: /search/si/1/Hair-Salons/Brampton+ON
+
+User-agent: BadBot
+Disallow: /

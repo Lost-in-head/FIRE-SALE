@@ -8,6 +8,7 @@ the verdict back to the DB.
 Auto-marks leads scoring <= 4 as 'dead'.
 """
 
+import json
 import os
 import sys
 import logging
@@ -24,7 +25,13 @@ import anthropic
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 
-from agents.messaging import parse_json_object, score_prompt  # noqa: E402
+from agents.messaging import (  # noqa: E402
+    campaign_for_lead,
+    load_messaging_config,
+    parse_json_object,
+    score_prompt,
+)
+from agents.website_quality import assess_website, blend_score  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -38,8 +45,9 @@ log = logging.getLogger(__name__)
 
 # ── Website fetcher ───────────────────────────────────────────────────────────
 
-def _fetch_website_text(url: str) -> str:
-    """Fetch and extract visible text from a URL. Returns empty string on failure."""
+def _fetch_website_text(url: str) -> tuple[str, int | None, float | None, str]:
+    """Fetch a page. Returns visible text, status, elapsed seconds, and raw HTML."""
+    started = time.monotonic()
     try:
         class _TextExtractor(HTMLParser):
             def __init__(self):
@@ -70,15 +78,17 @@ def _fetch_website_text(url: str) -> str:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
+            status = getattr(resp, "status", 200)
 
         parser = _TextExtractor()
         parser.feed(html)
         text = " ".join(parser.chunks)
-        return text[:4000]  # cap at 4k chars to stay within token budget
+        elapsed = time.monotonic() - started
+        return text[:4000], status, elapsed, html
 
     except Exception as exc:
         log.warning("Website fetch failed for %s: %s", url, exc)
-        return ""
+        return "", None, time.monotonic() - started, ""
 
 
 # ── Claude scoring ────────────────────────────────────────────────────────────
@@ -90,9 +100,19 @@ def _score_lead(client: anthropic.Anthropic, lead: sqlite3.Row) -> dict:
     """
     website_text = ""
     if lead["website_url"]:
-        website_text = _fetch_website_text(lead["website_url"])
+        website_text, status, elapsed, html = _fetch_website_text(lead["website_url"])
+        quality = assess_website(
+            lead["website_url"],
+            status=status,
+            html=html,
+            elapsed_seconds=elapsed,
+        )
+    else:
+        quality = assess_website(None)
 
-    prompt = score_prompt(lead, website_text)
+    cfg = load_messaging_config()
+    campaign = campaign_for_lead(lead, cfg)
+    prompt = score_prompt(lead, website_text, cfg, website_quality=quality.as_text())
 
     response = client.messages.create(
         model="claude-opus-4-5",
@@ -103,7 +123,13 @@ def _score_lead(client: anthropic.Anthropic, lead: sqlite3.Row) -> dict:
     data = parse_json_object(response.content[0].text)
 
     # Normalise
-    data["score"] = max(1, min(10, int(data.get("score", 1))))
+    data["score"] = blend_score(
+        int(data.get("score", 1)),
+        quality,
+        use_quality=bool(campaign and campaign.prioritize_missing_website),
+    )
+    data["website_score"] = quality.score
+    data["website_flags"] = ", ".join(quality.flags)
     data["verdict"] = data.get("verdict", "COLD").upper()
     if data["verdict"] not in ("HOT", "WARM", "COLD"):
         data["verdict"] = "COLD"
@@ -163,7 +189,9 @@ class LeadGenAgent:
                             qualify_action  = ?,
                             qualify_summary = ?,
                             qualified_at    = ?,
-                            status          = ?
+                            status          = ?,
+                            website_score   = ?,
+                            website_flags   = ?
                         WHERE id = ?
                     """, (
                         score,
@@ -173,6 +201,8 @@ class LeadGenAgent:
                         data.get("summary", ""),
                         datetime.utcnow().isoformat(),
                         new_status,
+                        data.get("website_score"),
+                        data.get("website_flags"),
                         lead_id,
                     ))
                     conn.commit()

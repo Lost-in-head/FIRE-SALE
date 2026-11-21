@@ -20,6 +20,7 @@ import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
+from agents.casl import cold_email_block_reason  # noqa: E402
 from agents.mailer import assert_outbound_allowed, send_email  # noqa: E402
 from agents.messaging import outreach_prompt, parse_json_object  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
@@ -87,11 +88,17 @@ class OutreachAgent:
                 conn.close()
                 raise
 
-        results = {"sent": 0, "errors": 0, "skipped": 0}
+        results = {"sent": 0, "errors": 0, "skipped": 0, "blocked": 0}
 
         for lead in leads:
             lead_id = lead["id"]
             label   = f"[Lead {lead_id} | {lead['email']}]"
+            blocked = cold_email_block_reason(lead)
+            if blocked:
+                log.info("%s Skipped — %s leads are not cold-emailed.", label, blocked)
+                results["blocked"] += 1
+                results["skipped"] += 1
+                continue
             if not (lead["email"] or "").strip():
                 log.info("%s No email — left for a later contact channel.", label)
                 results["skipped"] += 1

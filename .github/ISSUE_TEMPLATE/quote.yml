@@ -1,0 +1,55 @@
+name: Quote request
+description: A request from the public quote page. Import it with quote_ingest.py. Do not email from GitHub.
+title: "Quote: "
+body:
+  - type: input
+    id: campaign
+    attributes:
+      label: Campaign
+      description: contracting_tree_removal or web_design
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - brampton
+        - prince_edward_county
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Name
+    validations:
+      required: true
+  - type: input
+    id: email
+    attributes:
+      label: Email
+  - type: input
+    id: phone
+    attributes:
+      label: Phone
+  - type: input
+    id: address
+    attributes:
+      label: Address
+  - type: input
+    id: business
+    attributes:
+      label: Business or property
+  - type: textarea
+    id: message
+    attributes:
+      label: What do you need
+    validations:
+      required: true
+  - type: dropdown
+    id: homeowner
+    attributes:
+      label: I am a homeowner, cottager, or landlord
+      options:
+        - "No"
+        - "Yes"

@@ -45,6 +45,8 @@ class Prospect:
     brand: str | None = None
     brand_wikidata: str | None = None
     osm_tags: tuple[tuple[str, str], ...] = ()
+    lat: float | None = None
+    lon: float | None = None
 
 
 class LeadProvider(Protocol):

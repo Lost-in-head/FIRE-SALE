@@ -111,6 +111,8 @@ sessions/
 DATA/leads.csv
 DATA/leads.json
 data/nominatim_cache.json
+data/quote_inbox/*.json
+data/direct_mail.csv
 
 # Exported reports
 exports/

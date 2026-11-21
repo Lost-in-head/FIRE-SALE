@@ -36,7 +36,7 @@ Add these on the repository before the first scheduled or manual run. Secrets ho
 | `OVERPASS_URL` | leave unset | Defaults to `https://overpass-api.de/api/interpreter`. Set it only when that host is refusing connections. |
 | `PROSPECTOR_CAMPAIGN` | empty, or `contracting_tree_removal` / `web_design` | Empty uses the config default, which is contracting and tree removal. |
 | `PROSPECTOR_AREAS` | empty, or `brampton,prince_edward_county` | Empty uses both default areas. |
-| `PROSPECTOR_MAX_LEADS` | `20` is the config default | Keep it modest. Public Overpass will time out on huge pulls. |
+| `PROSPECTOR_MAX_LEADS` | `20` is the config default | Keep it modest. Public Overpass will time out on huge pulls. This cap is the OpenStreetMap insert cap. Each extra source has its own `max_per_run`. |
 | `SCORE_DEAD_THRESHOLD` | `4` | Scores at or below this become `dead`. |
 
 GitHub Actions cannot reach Proton Mail Bridge on your laptop. For a run inside Actions, use Proton SMTP submission (`smtp.protonmail.ch`, port 587, STARTTLS) and, if you want reply detection there, Proton IMAP. Use the Bridge when you run the pipeline on your own machine.
@@ -101,3 +101,14 @@ python backend/status_update.py --email prospect@example.com --status replied
 - Copy sells the offer on that lead: tree removal and contracting, or website design. It does not pitch a generic lead-generation service.
 
 Change the offer, the pitch, or the service-area sentence in `config/prospecting.toml`. That file is what the prompts read.
+
+## Extra sources on a test run
+
+No new secret is required. Details are in [Lead sources](lead-sources.md).
+
+- Need-help posts, permits, and directory pages are stored only. They are not messaged.
+- Storm alerts show up in the job summary. `notify` in the config is `false`, so a test run does not send the weather heads-up. Turning it on still uses test mode and `TEST_RECIPIENT`.
+- Quote pages under `docs/quote/` download a JSON file. Import it with `python backend/agents/quote_ingest.py --json quote.json`. That row is consent to reply, including when the sender is a homeowner.
+- Paste a Facebook post with `python backend/agents/facebook_manual.py`. The group list is not fetched.
+- `python backend/agents/direct_mail_export.py` writes permit addresses and leaves out email addresses.
+- A consumer lead is not cold-emailed. Outreach logs it as blocked.

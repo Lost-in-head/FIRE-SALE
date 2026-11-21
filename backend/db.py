@@ -93,6 +93,18 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         "campaign":         "TEXT",
         "area":             "TEXT",
         "replied_at":       "TIMESTAMP",
+
+        # How the lead may be contacted. Consumers and intent posts are
+        # never cold-emailed. inbound_quote is consent to reply.
+        "contact_channel":  "TEXT",
+        "lead_type":        "TEXT",
+        "consent":          "TEXT",
+        "external_url":     "TEXT",
+        "excerpt":          "TEXT",
+        "website_score":    "INTEGER",
+        "website_flags":    "TEXT",
+        "lat":              "REAL",
+        "lon":              "REAL",
     }
 
     for col, dtype in additions.items():
@@ -105,6 +117,22 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_source_identity
         ON leads(source, source_id)
         WHERE source IS NOT NULL AND source_id IS NOT NULL
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            source      TEXT NOT NULL,
+            source_id   TEXT NOT NULL,
+            area        TEXT,
+            event_type  TEXT,
+            title       TEXT,
+            summary     TEXT,
+            url         TEXT,
+            issued_at   TEXT,
+            recorded_at TEXT,
+            UNIQUE(source, source_id)
+        )
     """)
 
     conn.commit()
