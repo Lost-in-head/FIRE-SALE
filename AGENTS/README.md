@@ -3,7 +3,7 @@
 This directory is the single source of truth for agent behavior and responsibilities.
 
 ## Canonical agent specs
-- [prospector_agent.md](prospector_agent.md) — finds organizations in OpenStreetMap and stores them as leads
+- [prospector_agent.md](prospector_agent.md) — finds organizations and stores them as leads
 - [director_agent.md](director_agent.md) — runs the pipeline in order
 - [lead_gen_agent.md](lead_gen_agent.md) — scores leads against the campaign offer
 - [outreach_agent.md](outreach_agent.md) — writes and sends the first email
@@ -14,7 +14,7 @@ This directory is the single source of truth for agent behavior and responsibili
 The runtime lives under `backend/agents/`. Campaigns, areas, and the words used in prompts live in `config/prospecting.toml`.
 
 The pipeline is:
-1. Prospector — search a named area for one campaign
+1. Prospector — search a named area for one campaign, including any enabled lead source
 2. Qualification — score the lead for that campaign's offer
 3. Initial outreach — test mode redirects this to the owner
 4. Reply check — optional IMAP, otherwise `backend/status_update.py`

@@ -1,0 +1,31 @@
+{
+  "features": [
+    {
+      "attributes": {
+        "ADDRESS": "12 Parklawn Dr, Brampton, ON, L6Y 2H4",
+        "PERMITNUMBER": "26-102013-000-00",
+        "SUBDESC": "Single Family Detached",
+        "WORKDESC": "Addition - Complete",
+        "STATUSDESC": "Issued"
+      }
+    },
+    {
+      "attributes": {
+        "ADDRESS": "3827 Castlemore Rd, Brampton, ON, L6P 0X2",
+        "PERMITNUMBER": "26-086609-000-00",
+        "SUBDESC": "Demolition Residential",
+        "WORKDESC": "Residential Demolition",
+        "STATUSDESC": "Issued"
+      }
+    },
+    {
+      "attributes": {
+        "ADDRESS": "1 Sign St, Brampton",
+        "PERMITNUMBER": "26-194823-000-00",
+        "SUBDESC": "Class A-Mobile",
+        "WORKDESC": "New",
+        "STATUSDESC": "Issued"
+      }
+    }
+  ]
+}

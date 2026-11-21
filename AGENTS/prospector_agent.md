@@ -18,9 +18,9 @@ python backend/agents/director_agent.py --stage prospector
 ```
 
 ## Source
-The built-in provider is OpenStreetMap (Nominatim for cities without a pinned box, Overpass for the search).
+The built-in provider is OpenStreetMap (Nominatim for cities without a pinned box, Overpass for the search). Other sources are listed in [docs/lead-sources.md](../docs/lead-sources.md) and toggled under `[sources]` in the config. Each one fails soft.
 
-An area may set `bbox` as south, west, north, east. Prince Edward County uses the county boundary from Nominatim, not the Picton town point. Brampton is pinned the same way. A one-off city such as Mississauga is geocoded.
+An area may set `bbox` as south, west, north, east. That rectangle is the search window. `config/areas/<key>.geojson` is the municipal polygon, and a point in the rectangle is kept only when it is inside the polygon. Georgetown and Norval proper are outside Brampton. Trenton is outside Prince Edward County. A one-off city such as Mississauga is geocoded and has no polygon.
 
 No API key is required. Set `PROSPECTOR_CONTACT_EMAIL` so the User-Agent has a contact address.
 
@@ -57,6 +57,8 @@ Pass areas or cities, not both. `--queries` replaces campaign keywords for that 
 An address already on the OSM object is stored. Otherwise the agent may read that business's own site. A lead with no email is still inserted. Outreach skips it later.
 
 ## Dedupe
-Skip when an existing lead matches, in order: `source` + `source_id`, website host, then email.
+Skip when an existing lead matches, in order: `source` + `source_id`, website host, email, then the same OpenStreetMap place when a node and a way share a name and a location. A direct-mail address is also kept once.
+
+A node and a way for one shop become one lead. The kept record uses the richer id and fills any blank phone, email, website, or address from the other element.
 
 `max_leads` is split across the areas in the run. A transient Overpass response (429, 502, 503, 504) or a timeout is retried once.

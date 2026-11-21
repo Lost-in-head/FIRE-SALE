@@ -15,6 +15,7 @@ import time
 import urllib.parse
 from pathlib import Path
 
+from ..geo import distance_m
 from .base import Prospect, SearchRequest, parse_osm_tag
 from .http import http_fetch
 
@@ -101,6 +102,92 @@ def _email_from_tags(tags: dict) -> str | None:
     if not match:
         return None
     return match.group(0).lower()
+
+
+def _point(element: dict) -> tuple[float | None, float | None]:
+    lat = element.get("lat")
+    lon = element.get("lon")
+    center = element.get("center") if isinstance(element.get("center"), dict) else {}
+    if lat is None:
+        lat = center.get("lat")
+    if lon is None:
+        lon = center.get("lon")
+    try:
+        if lat is None or lon is None:
+            return None, None
+        return float(lat), float(lon)
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _norm_place(value: str | None) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", (value or "").casefold()).split())
+
+
+def _same_osm_place(left: Prospect, right: Prospect) -> bool:
+    """True when a node and a way are the same shop, not two branches."""
+    if _norm_place(left.business_name) != _norm_place(right.business_name):
+        return False
+    left_address = _norm_place(left.address)
+    right_address = _norm_place(right.address)
+    if left_address and right_address:
+        return left_address == right_address
+    if None not in (left.lat, left.lon, right.lat, right.lon):
+        return distance_m(left.lat, left.lon, right.lat, right.lon) <= 200
+    return True
+
+
+def _richness(item: Prospect) -> tuple[int, int]:
+    filled = sum(
+        bool(value) for value in (item.website, item.phone, item.email, item.address, item.contact_name)
+    )
+    kind = item.source_id.split("/", 1)[0]
+    rank = {"way": 3, "relation": 2, "node": 1}.get(kind, 0)
+    return filled, rank
+
+
+def _fill(primary: Prospect, extra: Prospect) -> Prospect:
+    """Keep primary's identity and copy contact fields the other record had."""
+    def pick(attr: str):
+        return getattr(primary, attr) or getattr(extra, attr)
+
+    lat = primary.lat if primary.lat is not None else extra.lat
+    lon = primary.lon if primary.lon is not None else extra.lon
+    return Prospect(
+        source=primary.source,
+        source_id=primary.source_id,
+        business_name=primary.business_name,
+        city=primary.city,
+        website=pick("website"),
+        phone=pick("phone"),
+        address=pick("address"),
+        email=pick("email"),
+        contact_name=pick("contact_name"),
+        brand=pick("brand"),
+        brand_wikidata=pick("brand_wikidata"),
+        osm_tags=primary.osm_tags or extra.osm_tags,
+        lat=lat,
+        lon=lon,
+    )
+
+
+def collapse_osm_places(items: list[Prospect]) -> list[Prospect]:
+    """Keep one record when Overpass returns the same place as a node and a way."""
+    kept: list[Prospect] = []
+    for item in items:
+        match_at = None
+        for index, previous in enumerate(kept):
+            if _same_osm_place(previous, item):
+                match_at = index
+                break
+        if match_at is None:
+            kept.append(item)
+            continue
+        if _richness(item) > _richness(kept[match_at]):
+            kept[match_at] = _fill(item, kept[match_at])
+        else:
+            kept[match_at] = _fill(kept[match_at], item)
+    return kept
 
 
 def _address_from_tags(tags: dict) -> str | None:
@@ -215,7 +302,7 @@ class OsmOverpassProvider:
                 log.warning("%s", message)
                 self.errors.append(message)
             return []
-        return self._prospects(elements, request.city, limit)
+        return collapse_osm_places(self._prospects(elements, request.city))[:limit]
 
     def _geocode(self, place_query: str) -> dict | None:
         key = " ".join(place_query.split()).casefold()
@@ -290,7 +377,7 @@ class OsmOverpassProvider:
         self.errors.append(last_detail)
         return None
 
-    def _prospects(self, elements: list, city: str, limit: int) -> list[Prospect]:
+    def _prospects(self, elements: list, city: str) -> list[Prospect]:
         found: list[Prospect] = []
         seen: set[str] = set()
         for element in elements:
@@ -310,6 +397,7 @@ class OsmOverpassProvider:
             if source_id in seen:
                 continue
             seen.add(source_id)
+            lat, lon = _point(element)
             osm_tags = tuple(
                 (str(key), str(value))
                 for key, value in tags.items()
@@ -328,9 +416,9 @@ class OsmOverpassProvider:
                 brand=_first_tag(tags, ("brand",)),
                 brand_wikidata=_first_tag(tags, ("brand:wikidata",)),
                 osm_tags=osm_tags,
+                lat=lat,
+                lon=lon,
             ))
-            if len(found) >= limit:
-                break
         return found
 
     def _read_cache(self) -> dict:
