@@ -86,6 +86,13 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         "phone":            "TEXT",
         "address":          "TEXT",
         "prospected_at":    "TIMESTAMP",
+
+        # Which campaign and named area produced the lead, and which
+        # configured target it matched. replied_at stops follow-ups.
+        "business_type":    "TEXT",
+        "campaign":         "TEXT",
+        "area":             "TEXT",
+        "replied_at":       "TIMESTAMP",
     }
 
     for col, dtype in additions.items():
@@ -101,6 +108,15 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     """)
 
     conn.commit()
+
+
+def checkpoint_db() -> None:
+    """Fold the WAL into the main file so a later cache save is complete."""
+    conn = get_connection()
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

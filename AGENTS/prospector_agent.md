@@ -1,54 +1,47 @@
 # Prospector Agent
 
 ## Role
-Find businesses that match the current offer and store them as new leads. This stage does not qualify or contact anyone.
+Find organizations that match the current campaign and store them as new leads. This stage does not qualify or contact anyone.
 
 ## Runtime
 Implementation: `backend/agents/prospector_agent.py`
 
-Provider interface: `backend/agents/providers/`
-
 Targets file: `config/prospecting.toml`
-
-Run it on its own:
 
 ```bash
 python backend/agents/prospector_agent.py
 python backend/agents/prospector_agent.py --dry-run
-python backend/agents/prospector_agent.py --cities "Brampton,Mississauga" --campaign web_design
+python backend/agents/prospector_agent.py --areas brampton --campaign web_design
+python backend/agents/prospector_agent.py --areas prince_edward_county --campaign contracting_tree_removal
+python backend/agents/prospector_agent.py --cities Mississauga --campaign web_design
 python backend/agents/director_agent.py --stage prospector
 ```
 
-Or as the first stage of `backend/agents/director_agent.py`.
-
 ## Source
-The built-in provider is OpenStreetMap.
+The built-in provider is OpenStreetMap (Nominatim for cities without a pinned box, Overpass for the search).
 
-1. Geocode each city with Nominatim.
-2. Search that bounding box with the public Overpass API.
-3. Keep the business name, website, phone, address, and OSM id (`node/123`, `way/456`, or `relation/789`).
+An area may set `bbox` as south, west, north, east. Prince Edward County uses the county boundary from Nominatim, not the Picton town point. Brampton is pinned the same way. A one-off city such as Mississauga is geocoded.
 
-Nominatim's usage policy is part of the provider: an identifying `User-Agent` (`PROSPECTOR_CONTACT_EMAIL` is included when set), about one request per second, and a disk cache at `data/nominatim_cache.json`.
+No API key is required. Set `PROSPECTOR_CONTACT_EMAIL` so the User-Agent has a contact address.
 
-No API key is required. Google Places is not implemented. A later provider implements `LeadProvider.search` and is added in `agents.providers.get_provider` without changing the director.
+## Campaigns
+Exactly two campaigns ship:
 
-## Targets
-Default region: Greater Toronto Area, Ontario, Canada.
+- `contracting_tree_removal` — organizations that buy contracting and tree removal
+- `web_design` — independent local businesses, preferring those with no website tag
 
-Default cities: Brampton and Mississauga. Toronto, Vaughan, Markham, and Oakville are already listed under `region.places`, so adding one of them to `default_cities` (or passing `--cities`) is a config change. Any other Ontario city works too: a name that is not in `region.places` is geocoded as `"<city>, Ontario, Canada"`.
+`web_design` searches missing-website places first. A host on that campaign's `weak_website_hosts` list ranks next. Phone and address are stored either way.
 
-Business types are campaigns in `config/prospecting.toml`, not code. Each campaign maps an offer to:
+Both campaigns share `[filters]`: a name denylist, plus any OSM `brand` or `brand:wikidata` tag when `drop_branded` is true. Competitor names (`exclude_keywords` on the campaign) are skipped too.
 
-- `keywords` — matched against the business name
-- `tags` — exact OpenStreetMap `key=value` filters, any of which may match
+Each new lead stores `campaign`, `area`, and `business_type` when a target matched.
 
-The shipped file includes `web_design`, `home_trades`, and `food_and_drink` as editable examples. `default_campaign` chooses which one a normal run uses. Change it when the offer changes.
-
-Per-run overrides:
+## Overrides
 
 | Input | CLI | Environment |
 | --- | --- | --- |
-| Cities | `--cities` | `PROSPECTOR_CITIES` |
+| Areas | `--areas` | `PROSPECTOR_AREAS` |
+| One-off cities | `--cities` | `PROSPECTOR_CITIES` |
 | Campaign | `--campaign` | `PROSPECTOR_CAMPAIGN` |
 | Keywords | `--queries` | `PROSPECTOR_QUERIES` |
 | OSM tags | `--tags` | `PROSPECTOR_TAGS` |
@@ -58,29 +51,12 @@ Per-run overrides:
 | Skip website reads | `--no-email-discovery` | `PROSPECTOR_FIND_EMAILS=false` |
 | Preview only | `--dry-run` | `DRY_RUN=true` |
 
-`--queries` replaces the campaign keywords and leaves its tags in place when a campaign is selected. Passing keywords or tags without a campaign does not inherit the default campaign. A run with neither keywords nor tags is rejected.
+Pass areas or cities, not both. `--queries` replaces campaign keywords for that run.
 
-## Email
-An email already published on the OSM object (`email` or `contact:email`) is stored as-is.
+## Email on the lead
+An address already on the OSM object is stored. Otherwise the agent may read that business's own site. A lead with no email is still inserted. Outreach skips it later.
 
-Otherwise, when email discovery is on, the agent may read the business's own homepage and contact page. Requests time out, wait between pages, and skip paths disallowed by that site's `robots.txt`. No search engine or directory is scraped.
+## Dedupe
+Skip when an existing lead matches, in order: `source` + `source_id`, website host, then email.
 
-A business with no email is still inserted. Outreach skips qualified leads that have no email, so the rest of the pipeline keeps running.
-
-## Dedupe and storage
-A candidate is skipped when it matches an existing lead in this order:
-
-1. `source` + `source_id`
-2. website host, ignoring scheme, path, and a leading `www`
-3. email, case-insensitive
-
-`backend/db.py` adds `source`, `source_id`, `city`, `phone`, `address`, and `prospected_at` to existing databases. `email` stays unique and nullable, so several leads may have no email. Dry-run resolves and dedupes without writing leads.
-
-`max_leads` is a cap for the whole run, split across the configured cities so the first city does not consume every slot. A transient Overpass response (429, 502, 503, 504) or a timeout is retried once and then recorded on the run result as an error. A 500 is not retried. Malformed elements are skipped.
-
-## Known limitations
-- OpenStreetMap coverage is uneven. Many small businesses have no website, phone, or email on the map, and some have no entry at all.
-- Name and tag search misses businesses whose OSM tags do not match the campaign. Fix that in the config file, not in code.
-- Public Nominatim and Overpass instances rate-limit and occasionally time out. One failed city is logged and skipped; it does not stop later pipeline stages.
-- Set `PROSPECTOR_CONTACT_EMAIL` so the User-Agent identifies who to contact, which Nominatim asks applications to do.
-- The daily workflow uses the config-file defaults unless repository variables override them. Keep `max_leads` modest so a scheduled run stays within the public APIs' limits.
+`max_leads` is split across the areas in the run. A transient Overpass response (429, 502, 503, 504) or a timeout is retried once.

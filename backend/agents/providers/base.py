@@ -27,6 +27,8 @@ class SearchRequest:
     keywords: tuple[str, ...]
     tags: tuple[str, ...]
     limit: int
+    website_policy: str = "any"
+    bbox: tuple[str, str, str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,9 @@ class Prospect:
     address: str | None = None
     email: str | None = None
     contact_name: str | None = None
+    brand: str | None = None
+    brand_wikidata: str | None = None
+    osm_tags: tuple[tuple[str, str], ...] = ()
 
 
 class LeadProvider(Protocol):

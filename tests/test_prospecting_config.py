@@ -51,25 +51,78 @@ def sample_file(tmp_path):
     return path
 
 
-def test_shipped_config_targets_gta_starting_cities():
-    from agents.prospecting_config import DEFAULT_CONFIG_PATH, load_prospecting_file
+def test_shipped_config_targets_the_two_owner_campaigns():
+    from agents.prospecting_config import (
+        DEFAULT_CONFIG_PATH,
+        build_run_plan,
+        load_prospecting_file,
+    )
 
     cfg = load_prospecting_file(DEFAULT_CONFIG_PATH)
-    assert "toronto" in cfg.region.name.casefold()
-    assert list(cfg.region.default_cities) == ["Brampton", "Mississauga"]
     assert "ontario" in cfg.region.geocode_suffix.casefold()
     assert "canada" in cfg.region.geocode_suffix.casefold()
-
-    for city in ("Brampton", "Mississauga", "Toronto", "Vaughan", "Markham", "Oakville"):
+    assert list(cfg.default_areas) == ["brampton", "prince_edward_county"]
+    assert "Mississauga" not in cfg.region.default_cities
+    assert "Mississauga" in cfg.region.places
+    for city in (
+        "Brampton", "Mississauga", "Toronto", "Vaughan", "Markham", "Oakville",
+        "Picton", "Wellington", "Bloomfield", "Consecon", "Milford", "Rossmore",
+    ):
         assert city in cfg.region.places
         query = cfg.region.places[city]
         assert "Ontario" in query
         assert "Canada" in query
 
-    assert cfg.default_campaign in cfg.campaigns
-    assert len(cfg.campaigns) >= 3
-    for campaign in cfg.campaigns.values():
-        assert campaign.keywords or campaign.tags
+    assert set(cfg.campaigns) == {"contracting_tree_removal", "web_design"}
+    assert cfg.default_campaign == "contracting_tree_removal"
+    assert cfg.drop_branded is True
+    assert "re/max" in cfg.chain_names
+    assert "mcdonalds" in cfg.chain_names
+
+    contracting = cfg.campaigns["contracting_tree_removal"]
+    assert "tree" in contracting.offer.casefold()
+    assert "contract" in contracting.offer.casefold()
+    assert contracting.sender_pitch.strip()
+    assert "Prince Edward" in contracting.service_area
+    assert contracting.prioritize_missing_website is False
+    for tag in (
+        "leisure=golf_course",
+        "office=estate_agent",
+        "craft=winery",
+        "amenity=place_of_worship",
+        "amenity=school",
+        "landuse=cemetery",
+        "tourism=camp_site",
+    ):
+        assert tag in contracting.tags
+    assert any("property management" == keyword for keyword in contracting.keywords)
+
+    web = cfg.campaigns["web_design"]
+    assert "website" in web.offer.casefold()
+    assert web.sender_pitch.strip()
+    assert web.service_area.strip()
+    assert web.prioritize_missing_website is True
+    assert "shop=hairdresser" in web.tags
+    assert "facebook.com" in web.weak_website_hosts
+
+    pec = cfg.areas["prince_edward_county"]
+    assert pec.bbox is not None
+    south, west, north, east = (float(part) for part in pec.bbox)
+    assert north - south > 0.2
+    assert east - west > 0.5
+    assert "county" in pec.place_query.casefold()
+    assert cfg.areas["brampton"].bbox is not None
+
+    plan = build_run_plan(cfg)
+    assert plan.campaign == "contracting_tree_removal"
+    assert plan.area_keys == ("brampton", "prince_edward_county")
+    assert plan.bboxes[1] == pec.bbox
+
+    optional = build_run_plan(cfg, cities="Mississauga", campaign="web_design")
+    assert optional.area_keys == ("mississauga",)
+    assert optional.place_queries == ("Mississauga, Ontario, Canada",)
+    assert optional.bboxes == (None,)
+    assert optional.prioritize_missing_website is True
 
 
 def test_business_types_live_in_config_not_python():

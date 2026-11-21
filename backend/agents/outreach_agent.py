@@ -12,9 +12,7 @@ import os
 import sys
 import logging
 import sqlite3
-import smtplib
 import time
-from email.mime.text import MIMEText
 from pathlib import Path
 from datetime import datetime
 
@@ -22,16 +20,14 @@ import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
+from agents.mailer import assert_outbound_allowed, send_email  # noqa: E402
+from agents.messaging import outreach_prompt, parse_json_object  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN        = os.getenv("DRY_RUN", "false").lower() == "true"
 LOG_PATH       = BASE_DIR / "fire_sale.log"
 REQUEST_DELAY  = float(os.getenv("OUTREACH_DELAY", "3.0"))
-SMTP_HOST      = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT      = int(os.getenv("SMTP_PORT", "587"))
-FROM_EMAIL     = os.getenv("EMAIL_ADDRESS")
-FROM_PASSWORD  = os.getenv("EMAIL_APP_PASSWORD")
 FROM_NAME      = os.getenv("SENDER_NAME", "Chris")
 BOOKING_LINK   = os.getenv("BOOKING_LINK", "")
 
@@ -43,38 +39,11 @@ def _generate_email(client: anthropic.Anthropic, lead: sqlite3.Row) -> tuple[str
     """
     Returns (subject, body) for a personalised cold email to this lead.
     """
-    context = f"""
-Lead name: {lead['name'] or 'there'}
-Business name: {lead['business_name'] or 'their business'}
-Qualifier summary: {lead['qualify_summary'] or 'Small web design agency or freelancer'}
-Qualifier flags: {lead['qualify_action'] or ''}
-"""
-
-    booking_instruction = (
-        f"- CTA: invite them to book a short call via this link: {BOOKING_LINK}"
-        if BOOKING_LINK
-        else "- Clear single CTA: a short call this week"
+    prompt = outreach_prompt(
+        lead,
+        sender_name=FROM_NAME,
+        booking_link=BOOKING_LINK,
     )
-
-    prompt = f"""You are writing a cold outreach email on behalf of {FROM_NAME}, who helps small web design agencies and freelancers build better client acquisition systems using AI-assisted outreach.
-
-Lead context:
-{context}
-
-Email rules:
-- Maximum 5 sentences in the body
-- Conversational, not corporate
-- Reference something specific about their business if you can infer it
-- {booking_instruction}
-- No buzzwords, no "I hope this finds you well", no spam language
-- Subject line: short, curiosity-driven, under 8 words
-
-Return ONLY a JSON object with keys "subject" and "body". No markdown, no preamble.
-Example:
-{{"subject": "quick question about your clients", "body": "Hey [Name],\\n\\n..."}}
-
-Use the actual lead name, not [Name].
-"""
 
     response = client.messages.create(
         model="claude-opus-4-5",
@@ -82,34 +51,8 @@ Use the actual lead name, not [Name].
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    import json
-    data = json.loads(raw)
+    data = parse_json_object(response.content[0].text)
     return data["subject"], data["body"]
-
-
-# ── SMTP send ─────────────────────────────────────────────────────────────────
-
-def _send_email(to_email: str, subject: str, body: str) -> None:
-    if not FROM_EMAIL or not FROM_PASSWORD:
-        raise EnvironmentError("EMAIL_ADDRESS or EMAIL_APP_PASSWORD not set.")
-
-    msg = MIMEText(body, "plain")
-    msg["Subject"] = subject
-    msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
-    msg["To"]      = to_email
-
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(FROM_EMAIL, FROM_PASSWORD)
-        server.send_message(msg)
 
 
 # ── Main agent class ──────────────────────────────────────────────────────────
@@ -137,6 +80,12 @@ class OutreachAgent:
         """)
         leads = cursor.fetchall()
         log.info("Found %d leads ready for initial outreach.", len(leads))
+        if leads and not DRY_RUN:
+            try:
+                assert_outbound_allowed()
+            except EnvironmentError:
+                conn.close()
+                raise
 
         results = {"sent": 0, "errors": 0, "skipped": 0}
 
@@ -153,7 +102,13 @@ class OutreachAgent:
                 log.info("%s Generated email — Subject: '%s'", label, subject)
 
                 if not DRY_RUN:
-                    _send_email(lead["email"], subject, body)
+                    send_email(
+                        lead["email"],
+                        subject,
+                        body,
+                        lead_name=lead["name"] or "",
+                        business=lead["business_name"] or "",
+                    )
                     cursor.execute("""
                         UPDATE leads SET
                             status          = 'contacted',

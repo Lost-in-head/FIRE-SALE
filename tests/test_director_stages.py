@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-STAGE_ORDER = ["prospector", "lead_gen", "outreach", "followup", "closer"]
+STAGE_ORDER = ["prospector", "lead_gen", "outreach", "replies", "followup", "closer"]
 
 
 @pytest.fixture()
@@ -76,6 +76,48 @@ def test_workflow_can_select_the_prospector_stage():
     text = (ROOT / ".github" / "workflows" / "run_pipeline.yml").read_text()
     assert "prospector" in text
     assert text.index("prospector") < text.index("lead_gen")
+
+
+def test_workflow_restores_the_latest_database_and_defaults_to_test_mode():
+    text = (ROOT / ".github" / "workflows" / "run_pipeline.yml").read_text()
+    assert "actions/cache/restore@v4" in text
+    assert "actions/cache/save@v4" in text
+    assert "fire-sale-db-${{ runner.os }}-${{ github.run_id }}" in text
+    assert "fire-sale-db-${{ runner.os }}-" in text
+    assert "key: fire-sale-db-${{ runner.os }}\n" not in text
+    assert "smtp.gmail.com" not in text
+    assert "SMTP_STARTTLS" in text
+    assert "TEST_MODE" in text
+    assert "TEST_RECIPIENT" in text
+    assert "IMAP_HOST" in text
+    assert "PROSPECTOR_AREAS" in text
+    assert "PROSPECTOR_CONTACT_EMAIL" in text
+    assert 'export TEST_MODE=true' in text
+    assert 'export TEST_MODE=false' in text
+
+
+def test_zero_leads_and_missing_secrets_are_annotated(director, capsys, monkeypatch, tmp_path):
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    def empty():
+        return {"leads_inserted": 0, "campaign": "contracting_tree_removal", "areas": ["brampton"], "errors": []}
+
+    director.STAGES["prospector"] = empty
+    director.DirectorAgent(stage="prospector").run()
+    out = capsys.readouterr().out
+    assert "::warning::" in out
+    assert "0 leads" in out
+    assert "0 leads" in summary.read_text()
+
+    def missing_key():
+        raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
+
+    director.STAGES["lead_gen"] = missing_key
+    director.DirectorAgent(stage="lead_gen").run()
+    out = capsys.readouterr().out
+    assert "ANTHROPIC_API_KEY" in out
+    assert "::warning::" in out
 
 
 def test_legacy_nested_prospector_is_removed():

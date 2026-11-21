@@ -10,6 +10,9 @@ Implementation: `backend/agents/followup_agent.py`
 - leads with `status = 'contacted'`
 - `last_outreach_at IS NOT NULL`
 - `follow_up_count < 3`
+- not already marked `replied`
+
+Before sending, the agent checks IMAP when `IMAP_HOST`, `IMAP_USER`, and `IMAP_PASSWORD` are set. A matching From address sets status to `replied` and stops the sequence. If IMAP is unset or the mailbox cannot be read, the run continues and `backend/status_update.py --status replied` remains the manual path. The same check is the `replies` director stage.
 
 ## Cadence
 1. Touch 1 — 24 hours after first outreach

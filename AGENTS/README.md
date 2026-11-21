@@ -3,23 +3,25 @@
 This directory is the single source of truth for agent behavior and responsibilities.
 
 ## Canonical agent specs
-- [director_agent.md](director_agent.md) — coordinator for the sales pipeline
-- [lead_gen_agent.md](lead_gen_agent.md) — qualifies incoming leads
-- [outreach_agent.md](outreach_agent.md) — sends initial cold outreach emails
-- [followup_agent.md](followup_agent.md) — handles the 24h / 3d / 7d follow-up cadence
-- [closer_agent.md](closer_agent.md) — prepares call briefs for booked meetings
+- [prospector_agent.md](prospector_agent.md) — finds organizations in OpenStreetMap and stores them as leads
+- [director_agent.md](director_agent.md) — runs the pipeline in order
+- [lead_gen_agent.md](lead_gen_agent.md) — scores leads against the campaign offer
+- [outreach_agent.md](outreach_agent.md) — writes and sends the first email
+- [followup_agent.md](followup_agent.md) — 24h / 3d / 7d follow-ups
+- [closer_agent.md](closer_agent.md) — call briefs for booked meetings
 
 ## System overview
-The actual runtime implementation lives under `backend/agents/` and the canonical docs here mirror that behavior.
+The runtime lives under `backend/agents/`. Campaigns, areas, and the words used in prompts live in `config/prospecting.toml`.
 
 The pipeline is:
-1. Lead generation
-2. Qualification
-3. Initial outreach
-4. Follow-ups
-5. Meeting-booking support and close preparation
+1. Prospector — search a named area for one campaign
+2. Qualification — score the lead for that campaign's offer
+3. Initial outreach — test mode redirects this to the owner
+4. Reply check — optional IMAP, otherwise `backend/status_update.py`
+5. Follow-ups — skipped once a lead is `replied`
+6. Meeting brief
 
 ## Repository conventions
 - Keep agent behavior docs in this folder.
-- Keep summary docs in the repo root short and non-duplicative.
-- Prefer actual Python filenames under `backend/agents/` as the source of naming.
+- Keep summary docs in the repo root short.
+- Prefer the Python filenames under `backend/agents/` when naming things.

@@ -7,8 +7,9 @@ Run this to execute the full autonomous pipeline:
   1. Prospector Agent — find new businesses (OpenStreetMap by default)
   2. Lead Gen Agent   — qualify any unscored leads
   3. Outreach Agent   — send initial cold emails to qualified leads
-  4. Follow-Up Agent  — send scheduled follow-ups to contacted leads
-  5. Closer Agent     — generate call briefs for meeting-booked leads
+  4. Reply detection  — optional IMAP; stops follow-ups after a reply
+  5. Follow-Up Agent  — send scheduled follow-ups to contacted leads
+  6. Closer Agent     — generate call briefs for meeting-booked leads
 
 The Director logs a pipeline summary report after each run and can be
 scheduled via cron or run manually.
@@ -21,7 +22,7 @@ Usage:
     python director_agent.py --stage outreach
     python director_agent.py --stage followup
     python director_agent.py --stage closer
-    python director_agent.py --stage prospector --cities "Brampton,Mississauga" --campaign web_design
+    python director_agent.py --stage prospector --areas brampton,prince_edward_county --campaign contracting_tree_removal
 """
 
 import os
@@ -35,7 +36,8 @@ from datetime import datetime
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 
-from db import get_connection, init_db  # noqa: E402
+from agents.mailer import describe_outbound_policy  # noqa: E402
+from db import checkpoint_db, get_connection, init_db  # noqa: E402
 
 LOG_PATH = BASE_DIR / "fire_sale.log"
 FROM_NAME = os.getenv("SENDER_NAME", "Chris")
@@ -105,15 +107,25 @@ def _run_outreach() -> dict:
     return agent.run()
 
 
+def _run_replies() -> dict:
+    log.info("══ Stage 4: Reply detection ══")
+    from agents.reply_detector import detect_replies
+    conn = get_connection()
+    try:
+        return detect_replies(conn)
+    finally:
+        conn.close()
+
+
 def _run_followup() -> dict:
-    log.info("══ Stage 4: Follow-Up Agent ══")
+    log.info("══ Stage 5: Follow-Up Agent ══")
     from agents.followup_agent import FollowUpAgent
     agent = FollowUpAgent()
     return agent.run()
 
 
 def _run_closer() -> dict:
-    log.info("══ Stage 5: Closer Agent ══")
+    log.info("══ Stage 6: Closer Agent ══")
     from agents.closer_agent import CloserAgent
     agent = CloserAgent()
     return agent.run()
@@ -137,9 +149,41 @@ STAGES = {
     "prospector": _run_prospector,
     "lead_gen":   _run_lead_gen,
     "outreach":   _run_outreach,
+    "replies":    _run_replies,
     "followup":   _run_followup,
     "closer":     _run_closer,
 }
+
+
+def _announce(results: dict) -> list[str]:
+    """Print Actions warnings and a job summary. The process still exits 0."""
+    warnings: list[str] = []
+    prospector = results.get("prospector")
+    if isinstance(prospector, dict) and "error" not in prospector:
+        if prospector.get("leads_inserted") == 0:
+            detail = prospector.get("errors") or "none"
+            warnings.append(
+                "Prospector inserted 0 leads. "
+                f"Campaign={prospector.get('campaign')} "
+                f"areas={prospector.get('areas')} errors={detail}."
+            )
+    for name, res in results.items():
+        if isinstance(res, dict) and res.get("error"):
+            warnings.append(f"Stage {name} skipped or failed: {res['error']}")
+    for message in warnings:
+        log.warning("%s", message)
+        print(f"::warning::{message}", flush=True)
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        lines = ["## FIRE-SALE run", ""]
+        for name, res in results.items():
+            lines.append(f"- **{name}**: `{res}`")
+        if warnings:
+            lines.extend(["", "### Warnings"])
+            lines.extend(f"- {message}" for message in warnings)
+        with open(summary_path, "a", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+    return warnings
 
 
 class DirectorAgent:
@@ -164,6 +208,7 @@ class DirectorAgent:
         if self.dry_run:
             log.info("║         ⚠  DRY RUN MODE  ⚠          ║")
         log.info("╚══════════════════════════════════════╝")
+        log.info("%s", describe_outbound_policy())
 
         _print_snapshot(_pipeline_snapshot(), "BEFORE")
 
@@ -182,6 +227,8 @@ class DirectorAgent:
                 all_results[name] = _execute_stage(name, fn)
 
         _print_snapshot(_pipeline_snapshot(), "AFTER")
+        _announce(all_results)
+        checkpoint_db()
 
         # Summary report
         elapsed = (datetime.utcnow() - started_at).total_seconds()
@@ -206,8 +253,12 @@ if __name__ == "__main__":
         help="Run a single pipeline stage instead of the full pipeline."
     )
     parser.add_argument(
+        "--areas", default=None,
+        help="Comma-separated prospector area keys (default: brampton and prince_edward_county).",
+    )
+    parser.add_argument(
         "--cities", default=None,
-        help="Comma-separated prospector cities (default: config file, Brampton and Mississauga).",
+        help="Comma-separated one-off cities, such as Mississauga. Not combined with --areas.",
     )
     parser.add_argument(
         "--campaign", default=None,
@@ -235,6 +286,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    if args.areas:
+        os.environ["PROSPECTOR_AREAS"] = args.areas
     if args.cities:
         os.environ["PROSPECTOR_CITIES"] = args.cities
     if args.campaign:

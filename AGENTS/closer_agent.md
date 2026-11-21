@@ -23,5 +23,7 @@ Creates a markdown brief and updates:
 - close framework
 - recommended next step
 
+The brief sells the offer recorded on the lead's campaign.
+
 ## Canonical source
 Use this document together with `backend/agents/closer_agent.py` as the source of truth for the call-brief workflow.

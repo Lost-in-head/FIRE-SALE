@@ -29,6 +29,7 @@ import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
+from agents.messaging import closer_prompt  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -46,48 +47,7 @@ log = logging.getLogger(__name__)
 def _generate_brief(client: anthropic.Anthropic, lead: sqlite3.Row) -> str:
     """Generate a Markdown call brief for the given lead."""
 
-    name        = lead["name"] or "the prospect"
-    business    = lead["business_name"] or "their business"
-    email       = lead["email"]
-    score       = lead["qualify_score"] or "N/A"
-    verdict     = lead["qualify_verdict"] or "WARM"
-    summary     = lead["qualify_summary"] or "Small web design agency or freelancer."
-    flags       = lead["qualify_flags"] or "No specific flags."
-    orig_subj   = lead["email_subject"] or "our outreach email"
-
-    prompt = f"""You are a sales coach preparing {FROM_NAME} for a sales call with a prospect.
-
-Prospect details:
-- Name: {name}
-- Business: {business}
-- Email: {email}
-- ICP Score: {score}/10 ({verdict})
-- Summary: {summary}
-- Signals: {flags}
-- They replied after we sent: "{orig_subj}"
-
-Our offer: We help small web design agencies and freelancers build AI-assisted client acquisition systems — more leads, better outreach, less manual work.
-
-Generate a call brief in clean Markdown. Include these sections exactly:
-
-## 🎯 Lead at a Glance
-(3-4 bullet summary of who they are and why they matter)
-
-## 🔓 Opening Hook
-(A strong, specific opening line for the call — not generic)
-
-## 🔍 Discovery Questions
-(5-7 targeted questions to uncover their pain and situation)
-
-## 🛡 Objection Handling
-(The 4 most likely objections from this type of prospect, each with a rebuttal)
-
-## 💰 Closing Framework
-(A short 3-step closing sequence appropriate for this lead's warmth level)
-
-## ✅ Recommended Next Step
-(One clear sentence: what {FROM_NAME} should try to lock in by end of call)
-"""
+    prompt = closer_prompt(lead, sender_name=FROM_NAME)
 
     response = client.messages.create(
         model="claude-opus-4-5",
@@ -95,7 +55,25 @@ Generate a call brief in clean Markdown. Include these sections exactly:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    return response.content[0].text.strip()
+    return response.content[0].text.strip() + _contact_block(lead)
+
+
+def _contact_block(lead: sqlite3.Row) -> str:
+    """Keep reachability on the local brief. These values are not sent to the model."""
+    def value(key: str) -> str:
+        try:
+            raw = lead[key]
+        except (KeyError, IndexError):
+            return "none"
+        text = "" if raw is None else str(raw).strip()
+        return text or "none"
+
+    return (
+        "\n\n## Contact on file\n"
+        f"- Email: {value('email')}\n"
+        f"- Phone: {value('phone')}\n"
+        f"- Address: {value('address')}\n"
+    )
 
 
 # ── File writer ───────────────────────────────────────────────────────────────

@@ -22,6 +22,11 @@ log = logging.getLogger(__name__)
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+
+def overpass_endpoint() -> str:
+    """Public Overpass interpreter. OVERPASS_URL overrides it for one run."""
+    return os.getenv("OVERPASS_URL", "").strip() or OVERPASS_URL
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
 
@@ -40,6 +45,14 @@ def _keyword_pattern(keyword: str) -> str:
     return r"[\s\-]*".join(re.escape(token) for token in tokens)
 
 
+def _website_clause(policy: str) -> str:
+    if policy == "any":
+        return ""
+    if policy == "missing":
+        return '[!"website"][!"contact:website"][!"url"]'
+    raise ValueError(f"Unknown website policy {policy!r}")
+
+
 def build_overpass_query(
     *,
     south: str,
@@ -49,20 +62,22 @@ def build_overpass_query(
     keywords: tuple[str, ...],
     tags: tuple[str, ...],
     limit: int,
+    website_policy: str = "any",
 ) -> str:
     if not keywords and not tags:
         raise ValueError("OSM search needs keywords or tags")
     bbox = f"({south},{west},{north},{east})"
+    website = _website_clause(website_policy)
     clauses: list[str] = []
     for keyword in keywords:
         pattern = _keyword_pattern(keyword)
-        clauses.append(f'  nwr["name"~"{pattern}",i]{bbox};')
+        clauses.append(f'  nwr["name"~"{pattern}",i]{website}{bbox};')
     for tag in tags:
         key, value = parse_osm_tag(tag)
-        clauses.append(f'  nwr["{key}"="{value}"]{bbox};')
+        clauses.append(f'  nwr["{key}"="{value}"]{website}{bbox};')
     lines = "\n".join(clauses)
     return (
-        "[out:json][timeout:40];\n"
+        "[out:json][timeout:55];\n"
         "(\n"
         f"{lines}\n"
         ");\n"
@@ -152,26 +167,36 @@ class OsmOverpassProvider:
             raise ValueError("OSM search needs keywords or tags")
         for tag in request.tags:
             parse_osm_tag(tag)
-        bbox = self._geocode(request.place_query)
-        if bbox is None:
-            log.warning("No geocode result for %s", request.place_query)
-            return []
         limit = max(1, min(int(request.limit), 50))
+        if request.bbox:
+            south, west, north, east = request.bbox
+        else:
+            bbox = self._geocode(request.place_query)
+            if bbox is None:
+                log.warning("No geocode result for %s", request.place_query)
+                return []
+            south, west, north, east = (
+                bbox["south"], bbox["west"], bbox["north"], bbox["east"],
+            )
         query = build_overpass_query(
-            south=bbox["south"],
-            west=bbox["west"],
-            north=bbox["north"],
-            east=bbox["east"],
+            south=south,
+            west=west,
+            north=north,
+            east=east,
             keywords=request.keywords,
             tags=request.tags,
             limit=limit,
+            website_policy=request.website_policy,
         )
         payload = self._request(
-            OVERPASS_URL,
+            overpass_endpoint(),
             method="POST",
             body=urllib.parse.urlencode({"data": query}).encode(),
             timeout=90,
-            extra_headers={"Content-Type": "application/x-www-form-urlencoded"},
+            extra_headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
         )
         if payload is None:
             return []
@@ -229,7 +254,7 @@ class OsmOverpassProvider:
         extra_headers: dict | None = None,
     ) -> bytes | None:
         """GET/POST once, and retry once on a timeout or a transient gateway status."""
-        headers = {"User-Agent": self.user_agent}
+        headers = {"User-Agent": self.user_agent, "Accept": "application/json"}
         if extra_headers:
             headers.update(extra_headers)
         retriable = {429, 502, 503, 504}
@@ -285,6 +310,11 @@ class OsmOverpassProvider:
             if source_id in seen:
                 continue
             seen.add(source_id)
+            osm_tags = tuple(
+                (str(key), str(value))
+                for key, value in tags.items()
+                if value is not None and str(value).strip()
+            )
             found.append(Prospect(
                 source=self.name,
                 source_id=source_id,
@@ -295,6 +325,9 @@ class OsmOverpassProvider:
                 address=_address_from_tags(tags),
                 email=_email_from_tags(tags),
                 contact_name=_first_tag(tags, ("contact:name", "operator")),
+                brand=_first_tag(tags, ("brand",)),
+                brand_wikidata=_first_tag(tags, ("brand:wikidata",)),
+                osm_tags=osm_tags,
             ))
             if len(found) >= limit:
                 break

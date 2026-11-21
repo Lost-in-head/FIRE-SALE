@@ -20,11 +20,13 @@ Updates:
 - `follow_up_count` to `0`
 
 ## Email rules
-- max 5 sentences in body
+- the body sells the offer on the lead's campaign (tree removal and contracting, or website design)
+- max 5 sentences
 - conversational tone
 - direct CTA to book a short call
 - uses `BOOKING_LINK` if configured
-- no spammy language
+- test mode rewrites the SMTP recipient to `TEST_RECIPIENT` and names the intended prospect in the subject and body
+- no message is sent when test mode is on and `TEST_RECIPIENT` is empty
 
 ## Canonical source
 Use this document together with `backend/agents/outreach_agent.py` as the source of truth for outbound outreach behavior.

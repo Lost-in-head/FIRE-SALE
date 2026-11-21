@@ -349,3 +349,152 @@ def test_contact_name_is_stored_when_osm_has_one(prospector):
     )
     agent.run()
     assert _rows(db_module)[0]["name"] == "Sam Lee"
+
+
+def test_tags_area_and_campaign_and_drops_chains(prospector, tmp_path):
+    agent_module, db_module, _config = prospector
+    path = tmp_path / "areas.toml"
+    path.write_text(
+        """
+        default_campaign = "trees"
+        default_areas = ["brampton"]
+
+        [region]
+        name = "Ontario"
+        geocode_suffix = "Ontario, Canada"
+        default_cities = ["Brampton"]
+
+        [region.places]
+        Brampton = "Brampton, Ontario, Canada"
+
+        [areas.brampton]
+        name = "Brampton"
+        place_query = "Brampton, Ontario, Canada"
+        bbox = [43.6, -79.9, 43.8, -79.6]
+
+        [filters]
+        drop_branded = true
+        chain_names = ["re/max"]
+
+        [run]
+        max_leads = 5
+        find_emails = false
+        request_delay_seconds = 0
+
+        [campaigns.trees]
+        description = "Tree work"
+        offer = "Tree removal and contracting."
+        sender_pitch = "We remove hazard trees."
+        service_area = "Brampton"
+        exclude_keywords = ["tree removal"]
+
+        [[campaigns.trees.targets]]
+        label = "golf course"
+        tags = ["leisure=golf_course"]
+        """
+    )
+    from agents.prospecting_config import build_run_plan, load_prospecting_file
+
+    plan = build_run_plan(load_prospecting_file(path), find_emails=False)
+    prospects = [
+        _prospect(
+            source_id="node/1",
+            business_name="RE/MAX Escarpment",
+            website=None,
+            phone="905-555-0001",
+        ),
+        _prospect(
+            source_id="node/2",
+            business_name="Local Club",
+            website=None,
+            phone="905-555-0002",
+            brand="ClubCorp",
+            brand_wikidata="Q999",
+        ),
+        _prospect(
+            source_id="node/3",
+            business_name="County Tree Removal",
+            website=None,
+            phone="905-555-0003",
+        ),
+        _prospect(
+            source_id="node/4",
+            business_name="Peel Golf Club",
+            website="https://peelgolf.example",
+            phone="905-555-0004",
+            osm_tags=(("leisure", "golf_course"),),
+        ),
+    ]
+    result = agent_module.ProspectorAgent(
+        plan=plan,
+        provider=ListProvider(prospects),
+    ).run()
+    rows = _rows(db_module)
+    assert result["chains_filtered"] == 2
+    assert result["excluded"] == 1
+    assert result["leads_inserted"] == 1
+    assert result["with_website"] == 1
+    assert result["with_phone"] == 1
+    assert result["with_email"] == 0
+    assert rows[0]["business_name"] == "Peel Golf Club"
+    assert rows[0]["area"] == "brampton"
+    assert rows[0]["campaign"] == "trees"
+    assert rows[0]["business_type"] == "golf course"
+    assert rows[0]["phone"] == "905-555-0004"
+    assert result["areas"] == ["brampton"]
+
+
+def test_missing_websites_are_inserted_before_real_sites(prospector, tmp_path):
+    agent_module, db_module, _config = prospector
+    path = tmp_path / "sites.toml"
+    path.write_text(
+        """
+        default_campaign = "sites"
+
+        [region]
+        name = "Ontario"
+        geocode_suffix = "Ontario, Canada"
+        default_cities = ["Brampton"]
+
+        [region.places]
+        Brampton = "Brampton, Ontario, Canada"
+
+        [run]
+        max_leads = 1
+        find_emails = false
+        request_delay_seconds = 0
+
+        [campaigns.sites]
+        description = "Sites"
+        offer = "Website design for local businesses."
+        sender_pitch = "I design websites."
+        service_area = "Brampton"
+        prioritize_missing_website = true
+        weak_website_hosts = ["facebook.com"]
+        keywords = ["shop"]
+        tags = ["shop=bakery"]
+        """
+    )
+    from agents.prospecting_config import build_run_plan, load_prospecting_file
+
+    plan = build_run_plan(load_prospecting_file(path), cities="Brampton", find_emails=False)
+    provider = ListProvider([
+        _prospect(
+            source_id="node/10",
+            business_name="Has A Site",
+            website="https://hasasite.example",
+            phone="905-555-1111",
+        ),
+        _prospect(
+            source_id="node/11",
+            business_name="No Site Yet",
+            website=None,
+            phone="905-555-2222",
+        ),
+    ])
+    result = agent_module.ProspectorAgent(plan=plan, provider=provider).run()
+    assert provider.requests[0].website_policy == "missing"
+    assert result["leads_inserted"] == 1
+    assert _rows(db_module)[0]["business_name"] == "No Site Yet"
+    assert result["with_phone"] == 1
+    assert result["with_website"] == 0

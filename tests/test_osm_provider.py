@@ -237,6 +237,65 @@ def test_overpass_timeout_remark_is_reported(tmp_path):
     assert any("timed out" in error.lower() for error in provider.errors)
 
 
+def test_brand_tags_and_pinned_bbox_and_missing_website_filter(tmp_path):
+    payload = json.dumps({
+        "elements": [
+            {
+                "type": "node",
+                "id": 7,
+                "tags": {
+                    "name": "RE/MAX Example",
+                    "brand": "RE/MAX",
+                    "brand:wikidata": "Q123",
+                    "office": "estate_agent",
+                    "phone": "905-555-0101",
+                },
+            }
+        ]
+    }).encode()
+    http = FakeHTTP(overpass=payload)
+    found = _provider(tmp_path, http).search(_request(
+        bbox=("43.60", "-79.90", "43.85", "-79.63"),
+        website_policy="missing",
+        keywords=(),
+        tags=("office=estate_agent",),
+    ))
+    assert http.calls[0]["url"].startswith("https://overpass-api.de")
+    query = parse_qs(http.calls[0]["body"].decode())["data"][0]
+    assert "[!\"website\"]" in query
+    assert "[!\"contact:website\"]" in query
+    assert "(43.60,-79.90,43.85,-79.63)" in query
+    assert found[0].brand == "RE/MAX"
+    assert found[0].brand_wikidata == "Q123"
+    assert ("office", "estate_agent") in found[0].osm_tags
+    assert found[0].phone == "905-555-0101"
+
+
+def test_overpass_url_env_overrides_the_default_host(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERPASS_URL", "https://overpass.example/api/interpreter")
+    seen = []
+
+    def fetch(url, *, method="GET", body=None, headers=None, timeout=30):
+        seen.append(url)
+        if "nominatim" in url:
+            return 200, NOMINATIM
+        return 200, OVERPASS
+
+    _provider(tmp_path, fetch).search(_request(keywords=(), tags=("shop=bakery",)))
+    assert seen[-1] == "https://overpass.example/api/interpreter"
+    assert not any("overpass.osm.ch" in url for url in seen)
+
+
+def test_unknown_website_policy_is_rejected():
+    from agents.providers.osm import build_overpass_query
+
+    with pytest.raises(ValueError, match="website policy"):
+        build_overpass_query(
+            south="43", west="-80", north="44", east="-79",
+            keywords=(), tags=("shop=bakery",), limit=1, website_policy="only",
+        )
+
+
 def test_malformed_overpass_elements_do_not_drop_valid_ones(tmp_path):
     payload = json.dumps({
         "elements": [

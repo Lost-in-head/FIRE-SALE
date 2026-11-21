@@ -3,8 +3,9 @@ status_update.py
 ----------------
 CLI tool to manually promote (or demote) a lead's status in the database.
 
-This bridges the gap until automated inbox polling is implemented.
 Use it when a lead replies, books a meeting, or needs to be re-activated.
+IMAP reply detection does the same update when IMAP_* is configured.
+This command remains the path when IMAP is not set up.
 
 Valid statuses and their typical flow:
   new → qualified → contacted → meeting_booked → closed
@@ -35,6 +36,7 @@ VALID_STATUSES = (
     "new",
     "qualified",
     "contacted",
+    "replied",
     "meeting_booked",
     "closed",
     "dead",
