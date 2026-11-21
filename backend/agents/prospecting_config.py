@@ -7,9 +7,10 @@ which areas, keywords, and OSM tags a run asked for.
 import os
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from .geo import load_ring
 from .providers.base import parse_osm_tag
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "prospecting.toml"
@@ -30,6 +31,7 @@ class AreaConfig:
     name: str
     place_query: str
     bbox: tuple[str, str, str, str] | None
+    boundary: tuple[tuple[float, float], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,14 @@ class Campaign:
 
 
 @dataclass(frozen=True)
+class FacebookGroup:
+    area: str
+    name: str
+    url: str
+    note: str
+
+
+@dataclass(frozen=True)
 class ProspectingFile:
     region: RegionConfig
     areas: dict[str, AreaConfig]
@@ -68,6 +78,8 @@ class ProspectingFile:
     delay_seconds: float
     chain_names: tuple[str, ...]
     drop_branded: bool
+    sources: dict = field(default_factory=dict)
+    facebook_groups: tuple[FacebookGroup, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -94,12 +106,15 @@ class RunPlan:
     find_emails: bool
     dry_run: bool
     delay_seconds: float
+    boundaries: tuple[tuple[tuple[float, float], ...] | None, ...] = ()
+    sources: dict = field(default_factory=dict)
 
 
 def load_prospecting_file(path: Path | str | None = None) -> ProspectingFile:
     config_path = Path(path or DEFAULT_CONFIG_PATH)
     with config_path.open("rb") as handle:
         raw = tomllib.load(handle)
+    area_dir = config_path.parent / "areas"
 
     region_raw = raw.get("region") or {}
     places_raw = region_raw.get("places") or {}
@@ -113,6 +128,7 @@ def load_prospecting_file(path: Path | str | None = None) -> ProspectingFile:
             name=str(body.get("name") or key),
             place_query=str(body.get("place_query") or ""),
             bbox=_bbox(body.get("bbox"), str(key)),
+            boundary=load_ring(area_dir / f"{key}.geojson"),
         )
 
     campaigns: dict[str, Campaign] = {}
@@ -136,6 +152,8 @@ def load_prospecting_file(path: Path | str | None = None) -> ProspectingFile:
         delay_seconds=float(run_raw.get("request_delay_seconds", 1.1)),
         chain_names=_tuple_of_strings(filters_raw.get("chain_names")),
         drop_branded=bool(filters_raw.get("drop_branded", False)),
+        sources=dict(raw.get("sources") or {}),
+        facebook_groups=_facebook_groups(raw.get("facebook_groups") or []),
     )
 
 
@@ -348,6 +366,8 @@ def build_run_plan(
         find_emails=cfg.find_emails if find_emails is None else bool(find_emails),
         dry_run=bool(dry_run),
         delay_seconds=float(cfg.delay_seconds if delay_seconds is None else delay_seconds),
+        boundaries=tuple(area.boundary for area in selected),
+        sources=cfg.sources,
     )
 
 
@@ -370,6 +390,23 @@ def plan_from_env() -> RunPlan:
         dry_run=_as_bool(os.getenv("DRY_RUN")),
         delay_seconds=float(delay) if delay is not None else None,
     )
+
+
+def _facebook_groups(items) -> tuple[FacebookGroup, ...]:
+    groups = []
+    for item in items:
+        item = item or {}
+        url = str(item.get("url") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not url or not name:
+            continue
+        groups.append(FacebookGroup(
+            area=str(item.get("area") or "").strip(),
+            name=name,
+            url=url,
+            note=str(item.get("note") or "").strip(),
+        ))
+    return tuple(groups)
 
 
 def _normalized_tag(tag: str) -> str:

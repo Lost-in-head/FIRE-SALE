@@ -21,6 +21,7 @@ import anthropic
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
+from agents.casl import cold_email_block_reason  # noqa: E402
 from agents.mailer import assert_outbound_allowed, send_email  # noqa: E402
 from agents.messaging import followup_prompt, parse_json_object  # noqa: E402
 from agents.reply_detector import detect_replies  # noqa: E402
@@ -121,11 +122,11 @@ class FollowUpAgent:
                 conn.close()
                 raise
 
-        results = {"sent": 0, "ghosted": 0, "not_due": 0, "errors": 0, "replied": 0}
+        results = {"sent": 0, "ghosted": 0, "not_due": 0, "errors": 0, "replied": 0, "blocked": 0}
 
         for lead in leads:
             lead_id    = lead["id"]
-            label      = f"[Lead {lead_id} | {lead['email']}]"
+            label      = f"[Lead {lead_id}]"
             count      = lead["follow_up_count"] or 0
             next_touch = count + 1
 
@@ -135,6 +136,12 @@ class FollowUpAgent:
 
             if not _is_eligible(lead):
                 results["not_due"] += 1
+                continue
+
+            blocked = cold_email_block_reason(lead)
+            if blocked:
+                log.info("%s Follow-up skipped — %s.", label, blocked)
+                results["blocked"] += 1
                 continue
 
             try:

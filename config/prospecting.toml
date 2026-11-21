@@ -30,8 +30,10 @@ Milford = "Milford, Ontario, Canada"
 Rossmore = "Rossmore, Ontario, Canada"
 
 # Named areas. Either campaign can use either area.
-# bbox is south, west, north, east and skips Nominatim when it is set.
-# Prince Edward County uses the county admin boundary, not Picton town limits.
+# bbox is south, west, north, east. It is the Overpass search window.
+# config/areas/<key>.geojson is the municipal polygon. A hit inside the box
+# is kept only when it is also inside that polygon, so Georgetown, Norval
+# proper, and Trenton are not treated as part of the service area.
 # Source: Nominatim relation 3776364 (county) and relation 2407358 (Brampton).
 
 [areas.brampton]
@@ -68,7 +70,10 @@ chain_names = [
   "goodlife", "planet fitness", "anytime fitness", "h&r block", "liberty tax",
   "molly maid", "merry maids", "great clips", "sport clips", "rexall",
   "ikea", "costco", "loblaws", "no frills", "food basics", "freshco", "sobeys",
-  "giant tiger", "dollarama", "sutton group", "exit realty",
+  "giant tiger", "dollarama", "sutton group", "sutton", "exit realty",
+  "country inn", "radisson", "sheraton", "wyndham", "quality inn", "ramada",
+  "hyatt", "fairmont", "delta hotels", "travelodge", "knights inn", "la quinta",
+  "embassy suites", "homewood", "microtel", "econo lodge", "red roof",
 ]
 
 # Campaign A. Buyers of contracting and tree removal, not other tree companies.
@@ -217,3 +222,155 @@ tags = ["craft=electrician", "craft=plumber", "craft=hvac", "craft=carpenter", "
 [[campaigns.web_design.targets]]
 label = "guest house"
 tags = ["tourism=guest_house"]
+
+# Extra lead sources. Each one can be turned off. A source that cannot be
+# reached is skipped; it does not stop OpenStreetMap or the other sources.
+# Intent posts are stored for a manual reply. The pipeline never messages them.
+
+[sources.need_help]
+enabled = true
+max_per_run = 20
+min_interval_seconds = 2.0
+
+[[sources.need_help.queries]]
+campaign = "contracting_tree_removal"
+terms = ["tree removal", "arborist", "stump", "lot clearing", "need a contractor", "tree service"]
+
+[[sources.need_help.queries]]
+campaign = "web_design"
+terms = ["website", "web designer", "web design", "wix"]
+
+[[sources.need_help.feeds]]
+kind = "reddit"
+area = "brampton"
+subreddit = "Brampton"
+url = "https://old.reddit.com/r/Brampton/new.rss"
+
+[[sources.need_help.feeds]]
+kind = "reddit"
+area = "prince_edward_county"
+subreddit = "PrinceEdwardCounty"
+url = "https://old.reddit.com/r/PrinceEdwardCounty/new.rss"
+
+[[sources.need_help.feeds]]
+kind = "reddit"
+area = "prince_edward_county"
+subreddit = "BellevilleOntario"
+url = "https://old.reddit.com/r/BellevilleOntario/new.rss"
+
+# Kijiji closed its public RSS in 2024. These historical wanted-ad URLs are
+# still requested, without a login, and skipped when the host refuses them.
+[[sources.need_help.feeds]]
+kind = "kijiji"
+area = "brampton"
+url = "https://www.kijiji.ca/rss-srp-wanted/ontario/k0c637l9004"
+area_terms = ["brampton", "peel"]
+
+[[sources.need_help.feeds]]
+kind = "kijiji"
+area = "prince_edward_county"
+url = "https://www.kijiji.ca/rss-srp-wanted/ontario/k0c637l9004"
+area_terms = ["picton", "prince edward", "wellington", "bloomfield", "consecon", "quinte"]
+
+[sources.storm_alerts]
+enabled = true
+notify = false
+min_interval_seconds = 1.5
+
+[[sources.storm_alerts.feeds]]
+area = "brampton"
+url = "https://weather.gc.ca/rss/battleboard/onrm27_e.xml"
+
+[[sources.storm_alerts.feeds]]
+area = "prince_edward_county"
+url = "https://weather.gc.ca/rss/battleboard/onrm30_e.xml"
+
+[sources.permits]
+enabled = true
+max_per_run = 15
+min_interval_seconds = 1.5
+campaigns = ["contracting_tree_removal"]
+
+[[sources.permits.endpoints]]
+area = "brampton"
+available = true
+url = "https://maps1.brampton.ca/arcgis/rest/services/BuildingPermit/Building_Permits/FeatureServer/0/query"
+note = "City of Brampton open building-permit layer, filtered to recent demolition, dwelling, and addition permits."
+
+[[sources.permits.endpoints]]
+area = "prince_edward_county"
+available = false
+note = "Prince Edward County open data publishes parcels, zoning, and boundaries. It does not publish individual building, demolition, or tree permits. Applications sit in Cloudpermit, and the monthly activity reports are totals rather than addresses."
+
+[sources.directories]
+enabled = true
+max_per_run = 10
+min_interval_seconds = 2.0
+
+[[sources.directories.pages]]
+source = "yellowpages"
+area = "brampton"
+campaign = "web_design"
+url = "https://www.yellowpages.ca/search/si/1/Hair-Salons/Brampton+ON"
+
+[[sources.directories.pages]]
+source = "yellowpages"
+area = "prince_edward_county"
+campaign = "web_design"
+url = "https://www.yellowpages.ca/search/si/1/Hair-Salons/Picton+ON"
+
+[[sources.directories.pages]]
+source = "yellowpages"
+area = "brampton"
+campaign = "contracting_tree_removal"
+url = "https://www.yellowpages.ca/search/si/1/Property-Management/Brampton+ON"
+
+[[sources.directories.pages]]
+source = "yellowpages"
+area = "prince_edward_county"
+campaign = "contracting_tree_removal"
+url = "https://www.yellowpages.ca/search/si/1/Property-Management/Picton+ON"
+
+[[sources.directories.pages]]
+source = "brampton_board_of_trade"
+area = "brampton"
+campaign = "web_design"
+url = "https://members.bramptonbot.com/member-directory"
+note = "Member directory is behind a bot check and is not in the public HTML."
+
+[[sources.directories.pages]]
+source = "pec_chamber"
+area = "prince_edward_county"
+campaign = "web_design"
+url = "https://www.pecchamber.com/Member-Directory"
+note = "The directory page is public, but member records are loaded by a script and are not in the HTML."
+
+[sources.quote_inbox]
+enabled = true
+max_per_run = 20
+inbox_dir = "data/quote_inbox"
+
+# Reading list only. Nothing here is fetched or posted to.
+[[facebook_groups]]
+area = "brampton"
+name = "Peel Village and Eldomar Heights, Brampton"
+url = "https://www.facebook.com/groups/267193853354489"
+note = "Neighbourhood page. Paste a post in with facebook_manual.py."
+
+[[facebook_groups]]
+area = "brampton"
+name = "Brampton, Mississauga, Toronto GTA Buy Sell"
+url = "https://www.facebook.com/groups/2273051266267045"
+note = "Public buy-and-sell group. Manual paste only."
+
+[[facebook_groups]]
+area = "prince_edward_county"
+name = "Your Prince Edward County Community Page"
+url = "https://www.facebook.com/groups/PrinceEdwardCountyCommunityPage"
+note = "County-wide requests and recommendations, including Picton."
+
+[[facebook_groups]]
+area = "prince_edward_county"
+name = "Belleville Neighbours"
+url = "https://www.facebook.com/groups/1029364787229190"
+note = "Belleville and Quinte neighbours. Manual paste only. Not scraped."

@@ -12,6 +12,7 @@
 - Optional IMAP reply detection stops follow-ups; manual status updates still work
 - The daily Actions run restores the latest lead database and warns when a stage inserts nothing or skips for a missing secret
 - Real prospects are emailed only when `TEST_MODE` is explicitly off and the mailbox secrets are set
+- Extra lead sources are on, and each one can be turned off. Intent posts and consumer leads are not cold-emailed
 
 ## Phase 3 — After the owner has run it on themselves
 - Turn test mode off for one campaign and one area
@@ -28,8 +29,21 @@
 - Confirm the offer text and the service-area sentence in `config/prospecting.toml`
 - Add the secrets listed in [docs/first-internal-test-run.md](docs/first-internal-test-run.md)
 
+## More lead sources
+OpenStreetMap remains the business search. These sources are in config and fail soft:
+
+- Need-help posts from public Reddit RSS, plus the old Kijiji wanted RSS when the host still answers. Stored for a manual reply only.
+- Environment Canada wind, ice, and thunderstorm alerts for Brampton and Picton - Sandbanks, with an optional owner heads-up.
+- Brampton building permits as direct-mail addresses. Prince Edward County does not publish individual permits, so that area is skipped.
+- A static quote page per campaign, imported into the database as consent to reply.
+- Yellow Pages and the two chambers only where `robots.txt` and the public HTML actually contain listings.
+- A website-quality score for the website-design campaign.
+- A Facebook group reading list and a paste command. Facebook is not scraped.
+- Consumer leads for homeowners, cottagers, and landlords. They are not cold-emailed.
+
 ## Pipeline
-- Find leads from OpenStreetMap
+- Find leads from OpenStreetMap and the enabled sources
 - Score and write copy for the campaign on the lead
 - Send only to the owner until test mode is turned off
+- Do not cold-email a consumer or an intent post
 - Stop follow-ups when someone replies

@@ -181,6 +181,20 @@ def _announce(results: dict) -> list[str]:
         if warnings:
             lines.extend(["", "### Warnings"])
             lines.extend(f"- {message}" for message in warnings)
+        prospector = results.get("prospector")
+        if isinstance(prospector, dict) and "alerts" in prospector:
+            lines.extend(["", "### Weather alerts"])
+            found = prospector.get("alerts") or []
+            if not found:
+                lines.append("- No wind, ice, or thunderstorm alerts.")
+            for alert in found:
+                lines.append(
+                    f"- {alert.get('area')}: {alert.get('event_type')} — {alert.get('title')}"
+                )
+        if isinstance(prospector, dict) and prospector.get("sources"):
+            lines.extend(["", "### Lead sources"])
+            for name, info in prospector["sources"].items():
+                lines.append(f"- **{name}**: `{info}`")
         with open(summary_path, "a", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
     return warnings

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quote — website design</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #1c1c1c; background: #f4f7f8; }
+    form { display: grid; gap: 0.75rem; }
+    label { display: grid; gap: 0.25rem; }
+    input, select, textarea { font: inherit; padding: 0.4rem; }
+    button { font: inherit; padding: 0.5rem 0.8rem; background: #1d3557; color: white; border: 0; }
+    .note { font-size: 0.95rem; }
+  </style>
+</head>
+<body data-campaign="web_design" data-repo="Lost-in-head/FIRE-SALE">
+  <h1>Website design</h1>
+  <p class="note">For an independent business in Brampton or Prince Edward County. This form does not send a message. It prepares a quote the owner imports. Sending it is consent for a reply.</p>
+  <form id="quote">
+    <label>Name <input name="name" required></label>
+    <label>Email <input name="email" type="email"></label>
+    <label>Phone <input name="phone"></label>
+    <label>Address <input name="address"></label>
+    <label>Business or property <input name="business_name"></label>
+    <label>Area
+      <select name="area" required>
+        <option value="brampton">Brampton</option>
+        <option value="prince_edward_county">Prince Edward County</option>
+      </select>
+    </label>
+    <label>What do you need <textarea name="message" required rows="5"></textarea></label>
+    <label><input name="consumer" type="checkbox"> I am a homeowner, cottager, or landlord</label>
+    <button type="submit">Prepare quote</button>
+  </form>
+  <p id="done" class="note" hidden></p>
+  <script>
+    const page = document.body.dataset;
+    document.getElementById("quote").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(event.target);
+      const payload = {
+        campaign: page.campaign,
+        area: data.get("area"),
+        name: data.get("name"),
+        email: data.get("email") || "",
+        phone: data.get("phone") || "",
+        address: data.get("address") || "",
+        business_name: data.get("business_name") || "",
+        message: data.get("message"),
+        lead_type: data.get("consumer") ? "consumer" : "business",
+        consent: "inbound_quote"
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "quote.json";
+      link.click();
+      const body = [
+        "### Campaign", payload.campaign,
+        "### Area", payload.area,
+        "### Name", payload.name,
+        "### Email", payload.email,
+        "### Phone", payload.phone,
+        "### Address", payload.address,
+        "### Business or property", payload.business_name,
+        "### What do you need", payload.message,
+        "### I am a homeowner, cottager, or landlord", payload.lead_type === "consumer" ? "Yes" : "No"
+      ].join("\n");
+      const issue = "https://github.com/" + page.repo + "/issues/new?template=quote.yml&title="
+        + encodeURIComponent("Quote: " + payload.campaign)
+        + "&body=" + encodeURIComponent(body);
+      const done = document.getElementById("done");
+      done.hidden = false;
+      done.textContent = "Saved quote.json. The owner imports it with quote_ingest.py. Nothing was emailed. ";
+      const anchor = document.createElement("a");
+      anchor.href = issue;
+      anchor.textContent = "Open a GitHub issue instead";
+      done.appendChild(anchor);
+    });
+  </script>
+</body>
+</html>

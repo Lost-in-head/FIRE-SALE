@@ -32,103 +32,40 @@ import os
 import sqlite3
 import sys
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 
 from db import get_connection, init_db  # noqa: E402
 from agents.email_discovery import discover_email  # noqa: E402
+from agents.geo import contains  # noqa: E402
 from agents.lead_filters import (  # noqa: E402
     chain_skip_reason,
     excluded_keyword,
     match_label,
     order_prospects,
 )
+from agents.lead_store import DedupIndex, clean_email, website_host  # noqa: E402
 from agents.prospecting_config import plan_from_env, search_batches  # noqa: E402
 from agents.providers import get_provider  # noqa: E402
 from agents.providers.base import Prospect, SearchRequest  # noqa: E402
 from agents.providers.http import http_fetch  # noqa: E402
 from agents.providers.osm import default_user_agent  # noqa: E402
+from agents.sources.runner import run_configured_sources  # noqa: E402
 
 log = logging.getLogger("prospector_agent")
 
 
-def website_host(url: str | None) -> str | None:
-    """Lower-case registrable host, ignoring a leading www."""
-    if url is None or not str(url).strip():
-        return None
-    raw = str(url).strip()
-    if "://" not in raw:
-        raw = "https://" + raw
-    host = urlparse(raw).hostname
-    if not host:
-        return None
-    host = host.lower().rstrip(".")
-    if host.startswith("www."):
-        host = host[4:]
-    return host or None
-
-
 def _clean_email(email: str | None) -> str | None:
-    if email is None:
-        return None
-    cleaned = email.strip().lower()
-    if "@" not in cleaned:
-        return None
-    return cleaned
+    return clean_email(email)
 
 
-@dataclass
-class _DedupIndex:
-    sources: set[tuple[str, str]]
-    hosts: set[str]
-    emails: set[str]
-
-    @classmethod
-    def load(cls, conn: sqlite3.Connection) -> "_DedupIndex":
-        rows = conn.execute(
-            "SELECT source, source_id, email, website_url FROM leads"
-        ).fetchall()
-        sources: set[tuple[str, str]] = set()
-        hosts: set[str] = set()
-        emails: set[str] = set()
-        for source, source_id, email, website in rows:
-            if source and source_id:
-                sources.add((str(source), str(source_id)))
-            host = website_host(website)
-            if host:
-                hosts.add(host)
-            cleaned = _clean_email(email)
-            if cleaned:
-                emails.add(cleaned)
-        return cls(sources, hosts, emails)
-
-    def check(self, prospect: Prospect, email: str | None) -> str | None:
-        if (
-            prospect.source
-            and prospect.source_id
-            and (prospect.source, prospect.source_id) in self.sources
-        ):
-            return "source"
-        host = website_host(prospect.website)
-        if host and host in self.hosts:
-            return "website"
-        if email and email in self.emails:
-            return "email"
-        return None
-
-    def remember(self, prospect: Prospect, email: str | None) -> None:
-        if prospect.source and prospect.source_id:
-            self.sources.add((prospect.source, prospect.source_id))
-        host = website_host(prospect.website)
-        if host:
-            self.hosts.add(host)
-        if email:
-            self.emails.add(email)
+def _inside_boundary(prospect: Prospect, boundary) -> bool:
+    if not boundary or prospect.lat is None or prospect.lon is None:
+        return True
+    return contains(boundary, prospect.lon, prospect.lat)
 
 
 class ProspectorAgent:
@@ -143,7 +80,7 @@ class ProspectorAgent:
     def run(self) -> dict:
         init_db()
         conn = get_connection()
-        index = _DedupIndex.load(conn)
+        index = DedupIndex.load(conn)
         inserted = 0
         found = 0
         emails_found = 0
@@ -151,7 +88,7 @@ class ProspectorAgent:
         with_phone = 0
         chains_filtered = 0
         excluded = 0
-        duplicates = {"source": 0, "website": 0, "email": 0}
+        duplicates = {"source": 0, "website": 0, "email": 0, "place": 0, "address": 0}
         errors: list[str] = []
         inserted_names: list[str] = []
         chain_samples: list[str] = []
@@ -161,6 +98,7 @@ class ProspectorAgent:
             self.plan.cities,
             self.plan.place_queries,
             self.plan.bboxes,
+            self.plan.boundaries or (None,) * len(self.plan.area_keys),
         ))
         overfetch = _should_overfetch(self.plan)
         policies = ("missing", "any") if self.plan.prioritize_missing_website else ("any",)
@@ -174,7 +112,7 @@ class ProspectorAgent:
         )
 
         try:
-            for slot_index, (area_key, label, place_query, bbox) in enumerate(slots):
+            for slot_index, (area_key, label, place_query, bbox, boundary) in enumerate(slots):
                 if remaining <= 0:
                     break
                 slots_left = len(slots) - slot_index
@@ -199,6 +137,7 @@ class ProspectorAgent:
                         )
                         prospects, batch_errors = self._search(request, label)
                         errors.extend(batch_errors)
+                        prospects = [item for item in prospects if _inside_boundary(item, boundary)]
                         for prospect in prospects:
                             identity = prospect.source_id or prospect.business_name.casefold()
                             if identity in seen:
@@ -300,6 +239,14 @@ class ProspectorAgent:
                         prospect.phone or "no phone",
                         area_key,
                     )
+            source_run = run_configured_sources(
+                self.plan,
+                conn,
+                index,
+                fetch=http_fetch,
+                sleep=self._sleep,
+            )
+            inserted += source_run["inserted"]
         finally:
             conn.close()
 
@@ -323,6 +270,8 @@ class ProspectorAgent:
             "cities": list(self.plan.cities),
             "areas": list(self.plan.area_keys),
             "errors": errors,
+            "sources": source_run["sources"],
+            "alerts": source_run["alerts"],
         }
         log.info("Prospector complete. %s", result)
         return result
@@ -354,9 +303,10 @@ class ProspectorAgent:
             return None
         return _clean_email(found)
 
-    def _sleep(self, _seconds: float) -> None:
-        if self.plan.delay_seconds > 0:
-            time.sleep(self.plan.delay_seconds)
+    def _sleep(self, seconds: float) -> None:
+        if self.plan.delay_seconds <= 0:
+            return
+        time.sleep(max(self.plan.delay_seconds, seconds or 0))
 
     def _insert(
         self,
@@ -375,8 +325,14 @@ class ProspectorAgent:
                 INSERT INTO leads (
                     name, email, business_name, website_url, status,
                     source, source_id, city, phone, address, prospected_at,
-                    business_type, campaign, area
-                ) VALUES (?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    business_type, campaign, area,
+                    contact_channel, lead_type, consent, lat, lon
+                ) VALUES (
+                    ?, ?, ?, ?, 'new',
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?,
+                    'email', 'business', 'none', ?, ?
+                )
                 """,
                 (
                     name,
@@ -392,6 +348,8 @@ class ProspectorAgent:
                     business_type or None,
                     self.plan.campaign,
                     area_key,
+                    prospect.lat,
+                    prospect.lon,
                 ),
             )
             conn.commit()
