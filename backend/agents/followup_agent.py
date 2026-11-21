@@ -126,7 +126,7 @@ class FollowUpAgent:
 
         for lead in leads:
             lead_id    = lead["id"]
-            label      = f"[Lead {lead_id} | {lead['email']}]"
+            label      = f"[Lead {lead_id}]"
             count      = lead["follow_up_count"] or 0
             next_touch = count + 1
 

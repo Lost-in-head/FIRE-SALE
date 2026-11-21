@@ -92,7 +92,7 @@ class OutreachAgent:
 
         for lead in leads:
             lead_id = lead["id"]
-            label   = f"[Lead {lead_id} | {lead['email']}]"
+            label   = f"[Lead {lead_id}]"
             blocked = cold_email_block_reason(lead)
             if blocked:
                 log.info("%s Skipped — %s leads are not cold-emailed.", label, blocked)

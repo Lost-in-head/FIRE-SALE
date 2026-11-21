@@ -118,7 +118,7 @@ class CloserAgent:
 
         for lead in leads:
             lead_id = lead["id"]
-            label   = f"[Lead {lead_id} | {lead['email']}]"
+            label   = f"[Lead {lead_id}]"
 
             try:
                 brief_md = _generate_brief(self.client, lead)
