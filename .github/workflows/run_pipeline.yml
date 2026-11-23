@@ -86,6 +86,10 @@ jobs:
       - name: Run Director Agent
         env:
           ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          LLM_API_KEY:         ${{ secrets.LLM_API_KEY }}
+          LLM_PROVIDER:        ${{ vars.LLM_PROVIDER }}
+          LLM_MODEL:           ${{ vars.LLM_MODEL }}
+          LLM_BASE_URL:        ${{ vars.LLM_BASE_URL }}
           EMAIL_ADDRESS:       ${{ secrets.EMAIL_ADDRESS }}
           EMAIL_APP_PASSWORD:  ${{ secrets.EMAIL_APP_PASSWORD }}
           SENDER_NAME:         ${{ secrets.SENDER_NAME }}
@@ -130,9 +134,15 @@ jobs:
               fi
               ;;
           esac
-          if [ -z "${ANTHROPIC_API_KEY}" ]; then
-            echo "::warning::ANTHROPIC_API_KEY is not set. Scoring and copy stages will skip."
+          provider=$(printf '%s' "${LLM_PROVIDER:-anthropic}" | tr '[:upper:]' '[:lower:]')
+          llm_key="${LLM_API_KEY:-}"
+          if [ -z "$llm_key" ] && [ "$provider" = "anthropic" ]; then
+            llm_key="${ANTHROPIC_API_KEY:-}"
           fi
+          if [ -z "$llm_key" ]; then
+            echo "::warning::No LLM API key is set. Scoring and copy stages will skip. Set LLM_API_KEY, or ANTHROPIC_API_KEY when the provider is anthropic."
+          fi
+          unset llm_key
           STAGE_ARG=""
           if [ -n "${{ inputs.stage }}" ]; then
             STAGE_ARG="--stage ${{ inputs.stage }}"

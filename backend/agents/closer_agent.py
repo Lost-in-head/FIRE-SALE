@@ -25,12 +25,11 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-import anthropic
-
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 from agents.messaging import closer_prompt  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
+from llm import complete, require_llm  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN       = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -42,20 +41,12 @@ REQUEST_DELAY = float(os.getenv("CLOSER_DELAY", "2.0"))
 log = logging.getLogger(__name__)
 
 
-# ── Brief generation via Claude ───────────────────────────────────────────────
+# ── Brief generation ──────────────────────────────────────────────────────────
 
-def _generate_brief(client: anthropic.Anthropic, lead: sqlite3.Row) -> str:
+def _generate_brief(lead: sqlite3.Row) -> str:
     """Generate a Markdown call brief for the given lead."""
-
     prompt = closer_prompt(lead, sender_name=FROM_NAME)
-
-    response = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=1200,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    return response.content[0].text.strip() + _contact_block(lead)
+    return complete(prompt, max_tokens=1200, json=False).strip() + _contact_block(lead)
 
 
 def _contact_block(lead: sqlite3.Row) -> str:
@@ -95,10 +86,7 @@ class CloserAgent:
     """
 
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
-        self.client = anthropic.Anthropic(api_key=api_key)
+        require_llm()
 
     def run(self) -> dict:
         conn = get_connection()
@@ -121,7 +109,7 @@ class CloserAgent:
             label   = f"[Lead {lead_id}]"
 
             try:
-                brief_md = _generate_brief(self.client, lead)
+                brief_md = _generate_brief(lead)
                 log.info("%s Brief generated (%d chars).", label, len(brief_md))
 
                 if not DRY_RUN:
@@ -135,7 +123,7 @@ class CloserAgent:
                     conn.commit()
                     log.info("%s Brief saved → %s", label, path)
                 else:
-                    log.info("%s [DRY RUN] Brief preview:\n%s", label, brief_md[:500])
+                    log.info("%s [DRY RUN] Brief generated (%d chars). Not written.", label, len(brief_md))
 
                 results["briefs_generated"] += 1
 

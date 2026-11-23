@@ -1,11 +1,11 @@
 """Downstream stages can read prospector leads, including ones with no email.
 
-Anthropic and SMTP are mocked. DRY_RUN must not write the database.
+The LLM helper is mocked. DRY_RUN must not write the database.
 """
 
 import json
 import sqlite3
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +14,10 @@ import pytest
 def pipeline(monkeypatch, tmp_path):
     monkeypatch.setenv("LEADS_DB_PATH", str(tmp_path / "leads.sqlite3"))
     monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("EMAIL_ADDRESS", "from@example.com")
     monkeypatch.setenv("EMAIL_APP_PASSWORD", "password")
@@ -75,14 +79,6 @@ def _statuses(db_module):
     return rows
 
 
-def _agent(module, class_name):
-    cls = getattr(module, class_name)
-    with patch.object(cls, "__init__", lambda self: None):
-        agent = cls.__new__(cls)
-        agent.client = MagicMock()
-        return agent
-
-
 def test_dry_run_stages_accept_leads_with_and_without_email(pipeline):
     db_module, lead_gen, outreach, followup, closer = pipeline
     _seed(db_module)
@@ -94,26 +90,22 @@ def test_dry_run_stages_accept_leads_with_and_without_email(pipeline):
         "action": "Send email",
         "summary": "Local business.",
     })
-    lead_agent = _agent(lead_gen, "LeadGenAgent")
-    lead_agent.client.messages.create.return_value = MagicMock(
-        content=[MagicMock(text=score)]
-    )
-    lead_result = lead_agent.run()
+    with patch.object(lead_gen, "complete", return_value=score) as mock_score:
+        lead_result = lead_gen.LeadGenAgent().run()
     assert lead_result["qualified"] == 1
-    assert lead_agent.client.messages.create.call_count == 1
+    assert mock_score.call_count == 1
 
     email_body = json.dumps({"subject": "Quick question", "body": "Hello Sam"})
-    outreach_agent = _agent(outreach, "OutreachAgent")
-    outreach_agent.client.messages.create.return_value = MagicMock(
-        content=[MagicMock(text=email_body)]
-    )
-    outreach_result = outreach_agent.run()
+    with patch.object(outreach, "complete", return_value=email_body) as mock_email:
+        outreach_result = outreach.OutreachAgent().run()
     assert outreach_result["sent"] == 1
     assert outreach_result["skipped"] == 1
-    assert outreach_agent.client.messages.create.call_count == 1
+    assert mock_email.call_count == 1
 
-    follow_result = _agent(followup, "FollowUpAgent").run()
-    close_result = _agent(closer, "CloserAgent").run()
+    with patch.object(followup, "complete", side_effect=AssertionError("llm called")):
+        follow_result = followup.FollowUpAgent().run()
+    with patch.object(closer, "complete", side_effect=AssertionError("llm called")):
+        close_result = closer.CloserAgent().run()
     assert follow_result["sent"] == 0
     assert close_result["briefs_generated"] == 0
 

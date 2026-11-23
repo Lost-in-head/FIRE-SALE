@@ -2,9 +2,9 @@
 Follow-Up Agent
 ---------------
 Sends personalised follow-up emails at the 24h / 3-day / 7-day marks
-after initial outreach.  Claude writes each follow-up with awareness of
-which touch number it is — so touch 1 is a soft nudge, touch 2 adds
-a value hook, touch 3 is a graceful close.
+after initial outreach.  The configured model writes each follow-up with
+awareness of which touch number it is — so touch 1 is a soft nudge, touch 2
+adds a value hook, touch 3 is a graceful close.
 
 After 3 follow-ups with no response, the lead is moved to 'ghosted'.
 """
@@ -17,8 +17,6 @@ import time
 from pathlib import Path
 from datetime import datetime, timedelta
 
-import anthropic
-
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 from agents.casl import cold_email_block_reason  # noqa: E402
@@ -26,6 +24,7 @@ from agents.mailer import assert_outbound_allowed, send_email  # noqa: E402
 from agents.messaging import followup_prompt, parse_json_object  # noqa: E402
 from agents.reply_detector import detect_replies  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
+from llm import complete, require_llm  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN       = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -64,23 +63,16 @@ def _is_eligible(lead: sqlite3.Row) -> bool:
     return elapsed_hours >= required_hours
 
 
-# ── Claude email generation ───────────────────────────────────────────────────
+# ── Follow-up generation ──────────────────────────────────────────────────────
 
-def _generate_followup(client: anthropic.Anthropic, lead: sqlite3.Row, touch: int) -> tuple[str, str]:
+def _generate_followup(lead: sqlite3.Row, touch: int) -> tuple[str, str]:
     prompt = followup_prompt(
         lead,
         touch,
         sender_name=FROM_NAME,
         booking_link=BOOKING_LINK,
     )
-
-    response = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=400,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    data = parse_json_object(response.content[0].text)
+    data = parse_json_object(complete(prompt, max_tokens=400, json=True))
     return data["subject"], data["body"]
 
 
@@ -90,10 +82,7 @@ class FollowUpAgent:
     """Sends AI-personalised follow-up emails on the 24h/3d/7d cadence."""
 
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
-        self.client = anthropic.Anthropic(api_key=api_key)
+        require_llm()
 
     def run(self) -> dict:
         conn = get_connection()
@@ -145,7 +134,7 @@ class FollowUpAgent:
                 continue
 
             try:
-                subject, body = _generate_followup(self.client, lead, next_touch)
+                subject, body = _generate_followup(lead, next_touch)
                 log.info("%s Follow-up #%d — Subject: '%s'", label, next_touch, subject)
 
                 new_count = next_touch

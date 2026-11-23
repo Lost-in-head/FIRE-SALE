@@ -135,6 +135,10 @@ def test_followup_does_not_email_a_lead_who_replied(monkeypatch, tmp_path):
     monkeypatch.setenv("EMAIL_ADDRESS", "sender@proton.test")
     monkeypatch.setenv("EMAIL_APP_PASSWORD", "secret")
     monkeypatch.setenv("SMTP_HOST", "127.0.0.1")
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("FOLLOWUP_DELAY", "0")
     monkeypatch.setenv("IMAP_HOST", "imap.test")
@@ -153,13 +157,11 @@ def test_followup_does_not_email_a_lead_who_replied(monkeypatch, tmp_path):
     fake = FakeIMAP({"prospect@shop.test"})
     monkeypatch.setattr(detector, "connect", lambda _settings: fake)
 
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
-    with patch.object(followup.FollowUpAgent, "__init__", lambda self: None):
-        agent = followup.FollowUpAgent.__new__(followup.FollowUpAgent)
-        agent.client = MagicMock()
-        results = agent.run()
+    with patch.object(followup, "complete") as mock_complete:
+        results = followup.FollowUpAgent().run()
 
     assert results["sent"] == 0
-    assert agent.client.messages.create.call_count == 0
+    assert mock_complete.call_count == 0
     assert _status(db_module, "prospect@shop.test")["status"] == "replied"

@@ -94,6 +94,15 @@ def test_workflow_restores_the_latest_database_and_defaults_to_test_mode():
     assert "PROSPECTOR_CONTACT_EMAIL" in text
     assert 'export TEST_MODE=true' in text
     assert 'export TEST_MODE=false' in text
+    assert "LLM_PROVIDER:" in text
+    assert "LLM_MODEL:" in text
+    assert "LLM_BASE_URL:" in text
+    assert "secrets.LLM_API_KEY" in text
+    assert "secrets.ANTHROPIC_API_KEY" in text
+    assert "unset llm_key" in text
+    assert 'echo "$llm_key"' not in text
+    assert 'echo "$LLM_API_KEY"' not in text
+    assert 'echo "$ANTHROPIC_API_KEY"' not in text
 
 
 def test_zero_leads_and_missing_secrets_are_annotated(director, capsys, monkeypatch, tmp_path):

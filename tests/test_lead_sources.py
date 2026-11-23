@@ -461,9 +461,13 @@ def test_casl_blocks_consumer_and_intent_unless_the_quote_form():
 def test_outreach_does_not_email_a_consumer(tmp_path, monkeypatch):
     monkeypatch.setenv("LEADS_DB_PATH", str(tmp_path / "leads.sqlite3"))
     monkeypatch.setenv("DRY_RUN", "true")
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     import importlib
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
     import db as db_module
     import agents.outreach_agent as outreach
     importlib.reload(db_module)
@@ -486,17 +490,15 @@ def test_outreach_does_not_email_a_consumer(tmp_path, monkeypatch):
     )
     conn.commit()
     conn.close()
-    mock_client = MagicMock()
-    message = MagicMock()
-    message.content = [MagicMock(text='{"subject": "Hello", "body": "Thanks for the note."}')]
-    mock_client.messages.create.return_value = message
-    with patch.object(outreach.OutreachAgent, "__init__", lambda self: None):
-        agent = outreach.OutreachAgent.__new__(outreach.OutreachAgent)
-        agent.client = mock_client
-        results = agent.run()
+    with patch.object(
+        outreach,
+        "complete",
+        return_value='{"subject": "Hello", "body": "Thanks for the note."}',
+    ) as mock_complete:
+        results = outreach.OutreachAgent().run()
     assert results["blocked"] == 1
     assert results["sent"] == 1
-    assert mock_client.messages.create.call_count == 1
+    assert mock_complete.call_count == 1
 
 
 def test_facebook_paste_is_manual_and_the_module_does_not_fetch(tmp_path, monkeypatch):

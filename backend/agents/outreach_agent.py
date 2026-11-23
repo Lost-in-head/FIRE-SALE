@@ -1,7 +1,7 @@
 """
 Outreach Agent
 --------------
-Pulls qualified leads, uses Claude to write a personalised cold email
+Pulls qualified leads, asks the configured model for a personalised cold email
 for each one (based on their business context), sends it, and updates
 the DB status to 'contacted'.
 
@@ -16,14 +16,13 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-import anthropic
-
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 from agents.casl import cold_email_block_reason  # noqa: E402
 from agents.mailer import assert_outbound_allowed, send_email  # noqa: E402
 from agents.messaging import outreach_prompt, parse_json_object  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
+from llm import complete, require_llm  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN        = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -34,9 +33,9 @@ BOOKING_LINK   = os.getenv("BOOKING_LINK", "")
 
 log = logging.getLogger(__name__)
 
-# ── Email generation via Claude ───────────────────────────────────────────────
+# ── Email generation ──────────────────────────────────────────────────────────
 
-def _generate_email(client: anthropic.Anthropic, lead: sqlite3.Row) -> tuple[str, str]:
+def _generate_email(lead: sqlite3.Row) -> tuple[str, str]:
     """
     Returns (subject, body) for a personalised cold email to this lead.
     """
@@ -45,14 +44,7 @@ def _generate_email(client: anthropic.Anthropic, lead: sqlite3.Row) -> tuple[str
         sender_name=FROM_NAME,
         booking_link=BOOKING_LINK,
     )
-
-    response = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=500,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    data = parse_json_object(response.content[0].text)
+    data = parse_json_object(complete(prompt, max_tokens=500, json=True))
     return data["subject"], data["body"]
 
 
@@ -62,10 +54,7 @@ class OutreachAgent:
     """Generates and sends personalised cold emails to qualified leads."""
 
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
-        self.client = anthropic.Anthropic(api_key=api_key)
+        require_llm()
 
     def run(self) -> dict:
         conn = get_connection()
@@ -105,7 +94,7 @@ class OutreachAgent:
                 continue
 
             try:
-                subject, body = _generate_email(self.client, lead)
+                subject, body = _generate_email(lead)
                 log.info("%s Generated email — Subject: '%s'", label, subject)
 
                 if not DRY_RUN:
