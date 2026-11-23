@@ -3,7 +3,7 @@
 ## Phase 1 (Current)
 - **Python 3.12** — agent runtime
 - **SQLite** (`data/fire_sale_leads.sqlite3`) — lead database, managed by `backend/db.py`
-- **Anthropic Claude API** (`claude-opus-4-5`) — lead scoring, email generation, call briefs
+- **LLM** (`backend/llm.py`) — lead scoring, email generation, call briefs. Default is Anthropic Claude Haiku (`claude-haiku-5-5`). Set `LLM_PROVIDER=openai_compatible` to use an OpenAI-compatible host.
 - **Gmail / SMTP** — outbound cold email delivery
 - **Calendar booking link** (`BOOKING_LINK` env var) — meeting scheduling CTA in emails
 

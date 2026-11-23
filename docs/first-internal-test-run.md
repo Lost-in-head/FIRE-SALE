@@ -12,7 +12,8 @@ Add these on the repository before the first scheduled or manual run. Secrets ho
 
 | Name | Required for the first test | Value |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Yes, if scoring and copy should run | Anthropic key. If it is missing, those stages skip and the job stays green, with a warning. |
+| `ANTHROPIC_API_KEY` | Yes, if scoring and copy should run on the default provider | Anthropic key. Used when `LLM_API_KEY` is empty and the provider is Anthropic. If neither key is set, those stages skip and the job stays green, with a warning. |
+| `LLM_API_KEY` | Only when `LLM_PROVIDER` is not Anthropic | Key for the selected host. When set, it wins over `ANTHROPIC_API_KEY`. |
 | `TEST_RECIPIENT` | Yes | Your own mailbox. This is the only address that receives mail while test mode is on. |
 | `EMAIL_ADDRESS` | Yes, to actually deliver the test copy | The Proton address the message is sent from. |
 | `EMAIL_APP_PASSWORD` | Yes, to actually deliver the test copy | Proton Mail Bridge password, or a Proton SMTP submission token. |
@@ -38,6 +39,40 @@ Add these on the repository before the first scheduled or manual run. Secrets ho
 | `PROSPECTOR_AREAS` | empty, or `brampton,prince_edward_county` | Empty uses both default areas. |
 | `PROSPECTOR_MAX_LEADS` | `20` is the config default | Keep it modest. Public Overpass will time out on huge pulls. This cap is the OpenStreetMap insert cap. Each extra source has its own `max_per_run`. |
 | `SCORE_DEAD_THRESHOLD` | `4` | Scores at or below this become `dead`. |
+| `LLM_PROVIDER` | leave unset, or `anthropic` | `openai_compatible` points the OpenAI SDK at another host. |
+| `LLM_MODEL` | leave unset | Defaults to `claude-haiku-5-5` for Anthropic. Required for any other provider. |
+| `LLM_BASE_URL` | leave unset | Preset name or full URL. See the table below. |
+
+## Switching the model
+
+The default is Claude Haiku (`claude-haiku-5-5`) through the Anthropic SDK. Leave `LLM_PROVIDER` unset and keep `ANTHROPIC_API_KEY`. No new secret is required.
+
+To use another host, set `LLM_PROVIDER=openai_compatible`, set `LLM_MODEL` to that host's model id, set `LLM_API_KEY`, and set `LLM_BASE_URL` to a preset or a full URL.
+
+| Preset | Base URL |
+| --- | --- |
+| `openai` | `https://api.openai.com/v1` |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `groq` | `https://api.groq.com/openai/v1` |
+| `together` | `https://api.together.ai/v1` |
+| `mistral` | `https://api.mistral.ai/v1` |
+| `xai` | `https://api.x.ai/v1` |
+| `deepseek` | `https://api.deepseek.com` |
+| `openrouter` | `https://openrouter.ai/api/v1` |
+| `ollama` | `http://localhost:11434/v1` |
+
+Haiku uses adaptive thinking at effort `low`. OpenAI-compatible hosts are asked for `reasoning_effort=none`, then `minimal` if the host rejects `none`. A JSON reply that does not parse is retried once. The key is not written to the log.
+
+Example for a local Ollama model:
+
+```bash
+LLM_PROVIDER=openai_compatible
+LLM_MODEL=llama3.2
+LLM_BASE_URL=ollama
+LLM_API_KEY=ollama
+```
+
+Clear `LLM_PROVIDER` to go back to Haiku.
 
 GitHub Actions cannot reach Proton Mail Bridge on your laptop. For a run inside Actions, use Proton SMTP submission (`smtp.protonmail.ch`, port 587, STARTTLS) and, if you want reply detection there, Proton IMAP. Use the Bridge when you run the pipeline on your own machine.
 
@@ -51,7 +86,7 @@ The lead database is restored from the newest `fire-sale-db-<os>-<run id>` cache
 cp .env.example .env
 ```
 
-Fill `ANTHROPIC_API_KEY`, `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `TEST_RECIPIENT`, and `PROSPECTOR_CONTACT_EMAIL`. Leave `TEST_MODE=true`.
+Fill `ANTHROPIC_API_KEY` (or `LLM_API_KEY`), `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD`, `SMTP_HOST`, `SMTP_PORT`, `TEST_RECIPIENT`, and `PROSPECTOR_CONTACT_EMAIL`. Leave `TEST_MODE=true`. Leave `LLM_PROVIDER` unset to stay on Claude Haiku.
 
 Preview without writing leads or sending mail:
 
@@ -94,7 +129,7 @@ python backend/status_update.py --email prospect@example.com --status replied
 - Contracting leads are property managers, real estate offices, builders, landscapers, golf courses, campgrounds, rentals, wineries, farms, churches, cemeteries, schools, and municipal offices. Other tree companies are skipped. Chains are skipped.
 - Website-design leads prefer places with no website in OpenStreetMap. Phone and address are kept when email is missing.
 - A run that inserts 0 leads prints a `::warning::` and a job summary. The job stays green.
-- Without `ANTHROPIC_API_KEY`, scoring and copy are skipped with a warning.
+- Without a key for the selected provider (`LLM_API_KEY`, or `ANTHROPIC_API_KEY` when the provider is Anthropic), scoring and copy are skipped with a warning.
 - Without `TEST_RECIPIENT` while test mode is on, outreach refuses to send.
 - In test mode the subject looks like `[TEST for prospect@example.com] ...` and the body names the person who was not emailed.
 - Follow-ups do not go to a lead whose status is `replied`.

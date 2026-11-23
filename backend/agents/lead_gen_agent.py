@@ -2,7 +2,7 @@
 Lead Gen Agent
 --------------
 Pulls unqualified leads from the DB, fetches their website content,
-scores them via the Anthropic API (1-10, HOT/WARM/COLD), and writes
+scores them with the configured model (1-10, HOT/WARM/COLD), and writes
 the verdict back to the DB.
 
 Auto-marks leads scoring <= 4 as 'dead'.
@@ -19,8 +19,6 @@ from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
 
-import anthropic
-
 # ── Path setup so this runs from any working directory ─────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
@@ -33,6 +31,7 @@ from agents.messaging import (  # noqa: E402
 )
 from agents.website_quality import assess_website, blend_score  # noqa: E402
 from db import get_connection, migrate_db  # noqa: E402
+from llm import complete, require_llm  # noqa: E402
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -91,11 +90,11 @@ def _fetch_website_text(url: str) -> tuple[str, int | None, float | None, str]:
         return "", None, time.monotonic() - started, ""
 
 
-# ── Claude scoring ────────────────────────────────────────────────────────────
+# ── Model scoring ─────────────────────────────────────────────────────────────
 
-def _score_lead(client: anthropic.Anthropic, lead: sqlite3.Row) -> dict:
+def _score_lead(lead: sqlite3.Row) -> dict:
     """
-    Send lead context to Claude and return structured qualification data.
+    Send lead context to the model and return structured qualification data.
     Returns a dict with keys: score, verdict, flags, action, summary.
     """
     website_text = ""
@@ -114,13 +113,7 @@ def _score_lead(client: anthropic.Anthropic, lead: sqlite3.Row) -> dict:
     campaign = campaign_for_lead(lead, cfg)
     prompt = score_prompt(lead, website_text, cfg, website_quality=quality.as_text())
 
-    response = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=400,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    data = parse_json_object(response.content[0].text)
+    data = parse_json_object(complete(prompt, max_tokens=400, json=True))
 
     # Normalise
     data["score"] = blend_score(
@@ -140,13 +133,10 @@ def _score_lead(client: anthropic.Anthropic, lead: sqlite3.Row) -> dict:
 # ── Main agent class ──────────────────────────────────────────────────────────
 
 class LeadGenAgent:
-    """Qualifies unscored leads using Claude and updates the DB."""
+    """Qualifies unscored leads and updates the DB."""
 
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
-        self.client = anthropic.Anthropic(api_key=api_key)
+        require_llm()
 
     def run(self) -> dict:
         conn = get_connection()
@@ -170,7 +160,7 @@ class LeadGenAgent:
             lead_id = lead["id"]
             label = f"[Lead {lead_id}]"
             try:
-                data = _score_lead(self.client, lead)
+                data = _score_lead(lead)
                 score = data["score"]
                 verdict = data["verdict"]
                 new_status = "dead" if score <= SCORE_DEAD_THRESHOLD else "qualified"
@@ -213,7 +203,7 @@ class LeadGenAgent:
                     results["qualified"] += 1
 
             except json.JSONDecodeError as exc:
-                log.error("%s Claude returned invalid JSON: %s", label, exc)
+                log.error("%s Model returned invalid JSON: %s", label, exc)
                 results["errors"] += 1
             except Exception as exc:
                 log.error("%s Unexpected error: %s", label, exc)
