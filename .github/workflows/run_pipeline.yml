@@ -19,6 +19,7 @@ on:
         options:
           - ""
           - prospector
+          - filter_existing
           - lead_gen
           - outreach
           - replies
@@ -82,6 +83,13 @@ jobs:
           key: fire-sale-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             fire-sale-db-${{ runner.os }}-
+
+      # Idempotent. Marks bad rows filtered and clears unusable addresses.
+      # It does not delete leads and it does not send email. Safe to re-run.
+      - name: Filter existing leads before scoring
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: python backend/agents/filter_existing.py
 
       - name: Run Director Agent
         env:

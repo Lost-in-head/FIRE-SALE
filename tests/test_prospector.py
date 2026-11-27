@@ -184,7 +184,7 @@ def test_dedupes_by_source_then_website_host_then_email(prospector):
     rows = _rows(db_module)
     assert result["skipped_duplicate"] == 3
     assert result["duplicates"] == {
-        "source": 1, "website": 1, "email": 1, "place": 0, "address": 0,
+        "source": 1, "website": 1, "email": 1, "phone": 0, "place": 0, "address": 0,
     }
     assert result["leads_inserted"] == 1
     assert [row["business_name"] for row in rows] == ["Existing Bakery", "Brand New"]
@@ -263,6 +263,7 @@ def test_stops_at_max_leads_and_geocodes_configured_places(prospector):
             city="Brampton",
             website=None,
             email=None,
+            phone=f"905-555-010{index}",
         )
         for index in range(5)
     ]
@@ -294,6 +295,7 @@ def test_max_leads_is_shared_across_cities(prospector):
                 business_name=f"{city} {index}",
                 website=None,
                 email=None,
+                phone=f"905-555-{prefix}{index}00",
             ))
     provider = ListProvider(prospects)
     agent = agent_module.ProspectorAgent(

@@ -54,8 +54,16 @@ request_delay_seconds = 1.1
 
 # Chains and franchises are dropped for every campaign.
 # drop_branded also drops a place OSM tagged with brand or brand:wikidata.
+# Off-target places are dropped before a lead is stored, scored, or emailed.
+# To change what gets dropped, edit a list under [[filters.off_target]]
+# (every campaign) or [[campaigns.<name>.off_target]] (that campaign only).
+# Each block has a reason, OSM tags (key=value), and name keywords.
+# exclude_keywords on a campaign is also applied as the competitor reason.
+# check_mx clears an address when a lookup proves it cannot receive mail.
+# A lookup failure keeps the address. Leave check_mx false unless you want it.
 [filters]
 drop_branded = true
+check_mx = false
 chain_names = [
   "tim hortons", "timhortons", "mcdonalds", "starbucks", "subway", "burger king",
   "wendys", "kfc", "popeyes", "pizza pizza", "pizza hut", "domino", "dairy queen",
@@ -76,6 +84,73 @@ chain_names = [
   "embassy suites", "homewood", "microtel", "econo lodge", "red roof",
 ]
 
+[[filters.off_target]]
+reason = "government"
+tags = [
+  "office=government", "amenity=townhall", "amenity=courthouse", "amenity=police",
+  "amenity=fire_station", "amenity=library", "amenity=post_office",
+]
+keywords = [
+  "service ontario", "serviceontario", "canada post", "city hall", "town hall",
+  "municipal office", "courthouse", "court house", "police station", "police service",
+  "fire station", "fire hall", "fire department", "public library", "library",
+  "post office",
+]
+
+[[filters.off_target]]
+reason = "school"
+tags = [
+  "amenity=school", "amenity=university", "amenity=college", "amenity=kindergarten",
+  "building=school",
+]
+keywords = [
+  "school", "university", "college", "high school", "public school",
+  "elementary school", "secondary school", "school board",
+]
+
+[[filters.off_target]]
+reason = "worship"
+tags = [
+  "amenity=place_of_worship", "building=church", "building=mosque",
+  "building=synagogue", "building=temple", "building=chapel", "building=cathedral",
+]
+keywords = ["church", "mosque", "synagogue", "temple", "chapel", "parish", "gurdwara", "cathedral"]
+
+[[filters.off_target]]
+reason = "hospital"
+tags = ["amenity=hospital", "amenity=clinic", "amenity=doctors"]
+keywords = ["hospital", "medical clinic", "walk-in clinic", "walk in clinic", "health centre", "health center"]
+
+[[filters.off_target]]
+reason = "association"
+tags = []
+keywords = ["board of trade", "chamber of commerce", "chamber", "business improvement area", "bia"]
+
+[[filters.off_target]]
+reason = "charity"
+tags = ["office=ngo", "office=charity"]
+keywords = ["charity", "non-profit", "nonprofit", "not-for-profit", "not for profit"]
+
+[[filters.off_target]]
+reason = "bank"
+tags = ["amenity=bank", "amenity=atm"]
+keywords = ["bank", "atm", "credit union"]
+
+[[filters.off_target]]
+reason = "gas_station"
+tags = ["amenity=fuel"]
+keywords = ["gas station", "gas bar", "petrol station"]
+
+[[filters.off_target]]
+reason = "parking"
+tags = ["amenity=parking"]
+keywords = ["parking lot", "parking garage"]
+
+[[filters.off_target]]
+reason = "bus_stop"
+tags = ["highway=bus_stop", "amenity=bus_station", "public_transport=platform"]
+keywords = ["bus stop", "bus station"]
+
 # Campaign A. Buyers of contracting and tree removal, not other tree companies.
 [campaigns.contracting_tree_removal]
 description = "Organizations with grounds or a site that buy contracting and tree removal."
@@ -83,13 +158,22 @@ offer = "Contracting and tree removal for properties that need the work done on 
 sender_pitch = "We run a contracting and tree removal crew. We take down hazard trees, clear lots after storms, and do the site work that property managers, clubs, and landowners would rather not staff themselves."
 service_area = "Brampton and Prince Edward County, Ontario"
 prioritize_missing_website = false
-exclude_keywords = ["tree service", "tree removal", "arborist", "stump grinding", "tree care"]
+exclude_keywords = [
+  "tree service", "tree removal", "arborist", "stump grinding", "tree care",
+  "landscaping", "landscaper", "landscape contractor", "general contractor",
+  "contractor", "contracting",
+]
 scoring_notes = """
 - Owns or manages land, buildings, or grounds in the service area
-- Strong fits include property managers, real estate offices, builders, landscapers who subcontract, golf courses, campgrounds, cottage and resort rentals, wineries, farms, orchards, churches, cemeteries, schools, condo offices, and municipal or parks offices
+- Strong fits include property managers, condo boards, landlords, real estate offices, builders, golf courses, campgrounds, cottage and resort rentals, wineries, farms, orchards, cemeteries, and marinas
 - A phone number or a street address is enough. A website is optional
-- Poor fits: another tree-service company, a national chain, or a business with no property to maintain
+- Poor fits: a tree service, landscaper, or contractor; a national chain; a government or municipal office; a school; a place of worship; a hospital; a chamber, board of trade, or BIA; a charity; a bank, gas station, parking lot, or bus stop
 """
+
+[[campaigns.contracting_tree_removal.off_target]]
+reason = "competitor"
+tags = ["craft=gardener"]
+keywords = ["landscaping", "landscaper", "contractor", "contracting"]
 
 [[campaigns.contracting_tree_removal.targets]]
 label = "property management or condo office"
@@ -103,11 +187,6 @@ tags = ["office=estate_agent"]
 label = "builder or developer"
 keywords = ["home builder", "custom homes", "property developer"]
 tags = ["craft=builder"]
-
-[[campaigns.contracting_tree_removal.targets]]
-label = "landscaping or garden firm"
-keywords = ["landscaping"]
-tags = ["craft=gardener", "shop=garden_centre"]
 
 [[campaigns.contracting_tree_removal.targets]]
 label = "golf course"
@@ -126,20 +205,8 @@ label = "winery, farm, or orchard"
 tags = ["craft=winery", "landuse=vineyard", "landuse=orchard", "shop=farm", "landuse=farmyard"]
 
 [[campaigns.contracting_tree_removal.targets]]
-label = "church"
-tags = ["amenity=place_of_worship"]
-
-[[campaigns.contracting_tree_removal.targets]]
 label = "cemetery"
 tags = ["landuse=cemetery", "amenity=grave_yard"]
-
-[[campaigns.contracting_tree_removal.targets]]
-label = "school"
-tags = ["amenity=school", "amenity=kindergarten"]
-
-[[campaigns.contracting_tree_removal.targets]]
-label = "municipal or parks office"
-tags = ["amenity=townhall", "office=government", "amenity=community_centre"]
 
 [[campaigns.contracting_tree_removal.targets]]
 label = "marina"
@@ -157,7 +224,10 @@ offer = "Website design for independent local businesses that have no real websi
 sender_pitch = "I design straightforward websites for local businesses. Most of the owners I talk to are still sending customers to a Facebook page, or they have no site at all."
 service_area = "Brampton and Prince Edward County, Ontario"
 prioritize_missing_website = true
-exclude_keywords = ["web design", "website design", "web developer", "seo agency"]
+exclude_keywords = [
+  "web design", "website design", "web developer", "seo agency",
+  "marketing agency", "digital agency", "web agency", "advertising agency",
+]
 weak_website_hosts = [
   "facebook.com", "instagram.com", "fb.com", "fb.me", "linktr.ee", "linktree.com",
   "wixsite.com", "wix.com", "square.site", "godaddysites.com", "sites.google.com",
@@ -168,8 +238,13 @@ scoring_notes = """
 - Independent local business in any trade or storefront
 - No website, or only a weak one (a social page, a link-in-bio, or a free subdomain), is a strong positive signal
 - A phone number and a street address are enough when email is missing
-- Poor fits: a national chain or franchise, a web design agency, or a business that already has a strong custom site
+- Poor fits: a national chain or franchise, a web or marketing agency, a government office, a school, a place of worship, a hospital, a chamber or board of trade, a charity, a bank, or a gas station
 """
+
+[[campaigns.web_design.off_target]]
+reason = "competitor"
+tags = ["office=advertising_agency"]
+keywords = ["web design", "marketing agency", "digital agency"]
 
 [[campaigns.web_design.targets]]
 label = "hair or beauty salon"

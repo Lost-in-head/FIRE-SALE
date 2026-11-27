@@ -89,12 +89,15 @@ def test_shipped_config_targets_the_two_owner_campaigns():
         "leisure=golf_course",
         "office=estate_agent",
         "craft=winery",
-        "amenity=place_of_worship",
-        "amenity=school",
+        "landuse=orchard",
         "landuse=cemetery",
         "tourism=camp_site",
     ):
         assert tag in contracting.tags
+    assert "amenity=place_of_worship" not in contracting.tags
+    assert "amenity=school" not in contracting.tags
+    assert "office=government" not in contracting.tags
+    assert "craft=gardener" not in contracting.tags
     assert any("property management" == keyword for keyword in contracting.keywords)
 
     web = cfg.campaigns["web_design"]

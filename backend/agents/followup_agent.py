@@ -127,6 +127,11 @@ class FollowUpAgent:
                 results["not_due"] += 1
                 continue
 
+            if not (lead["email"] or "").strip():
+                log.info("%s Follow-up skipped — no email.", label)
+                results["blocked"] += 1
+                continue
+
             blocked = cold_email_block_reason(lead)
             if blocked:
                 log.info("%s Follow-up skipped — %s.", label, blocked)

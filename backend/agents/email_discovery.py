@@ -9,20 +9,11 @@ import re
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
+from .email_check import assess_email
+
 log = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
-_SKIP_DOMAINS = {
-    "example.com",
-    "example.org",
-    "example.net",
-    "sentry.io",
-    "wixpress.com",
-    "schema.org",
-    "godaddy.com",
-    "squarespace.com",
-}
-_SKIP_PREFIXES = ("noreply@", "no-reply@", "donotreply@")
 _PAGE_PATHS = ("/", "/contact", "/contact-us")
 
 
@@ -97,15 +88,10 @@ def _robots_rules(fetch, origin: str, user_agent: str, timeout: float):
 def _emails_in(html: str) -> list[str]:
     found = []
     for match in _EMAIL_RE.findall(html):
-        email = match.strip(".").lower()
-        domain = email.split("@", 1)[-1]
-        if domain in _SKIP_DOMAINS or domain.endswith(
-            (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
-        ):
+        kept, reason = assess_email(match.strip("."))
+        if reason or not kept:
             continue
-        if email.startswith(_SKIP_PREFIXES):
-            continue
-        found.append(email)
+        found.append(kept)
     return found
 
 

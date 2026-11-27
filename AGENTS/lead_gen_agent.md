@@ -10,7 +10,9 @@ The prompt is built from `config/prospecting.toml`: that campaign's `offer`, `se
 
 ## Inputs
 - leads with `qualify_score IS NULL`
-- `status` not in `dead`, `closed`
+- `status` not in `dead`, `closed`, `filtered`
+
+Rows marked `filtered` were removed from scoring by `filter_existing.py`. They stay in the database with `filter_reason` set.
 
 ## Output
 Updates `qualify_score`, `qualify_verdict`, `qualify_flags`, `qualify_action`, `qualify_summary`, `qualified_at`, and `status` (`qualified` or `dead`).

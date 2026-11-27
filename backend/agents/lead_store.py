@@ -41,6 +41,18 @@ def clean_email(email: str | None) -> str | None:
     return cleaned
 
 
+def norm_phone(phone: str | None) -> str | None:
+    """Digits only, with a leading country code 1 removed. Too-short values are ignored."""
+    if phone is None:
+        return None
+    digits = re.sub(r"\D", "", str(phone))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) < 10:
+        return None
+    return digits
+
+
 def norm_text(value: str | None) -> str:
     text = (value or "").casefold()
     text = re.sub(r"[^a-z0-9]+", " ", text)
@@ -83,6 +95,7 @@ class DedupIndex:
         self.sources: set[tuple[str, str]] = set()
         self.hosts: set[str] = set()
         self.emails: set[str] = set()
+        self.phones: set[str] = set()
         self.addresses: set[tuple[str, str]] = set()
         self.places: list[dict] = []
         self.ids_by_name: dict[tuple[str, str], int] = {}
@@ -111,6 +124,7 @@ class DedupIndex:
                 address=record.get("address"),
                 lat=record.get("lat"),
                 lon=record.get("lon"),
+                phone=record.get("phone"),
             )
         return index
 
@@ -122,6 +136,9 @@ class DedupIndex:
             return "website"
         if email and email in self.emails:
             return "email"
+        phone_key = norm_phone(getattr(lead, "phone", None))
+        if phone_key and phone_key in self.phones:
+            return "phone"
         if self._place_conflict(lead):
             return "place"
         channel = getattr(lead, "contact_channel", "") or ""
@@ -145,6 +162,7 @@ class DedupIndex:
             address=lead.address,
             lat=lead.lat,
             lon=lead.lon,
+            phone=lead.phone,
         )
 
     def remember_row(
@@ -160,6 +178,7 @@ class DedupIndex:
         address,
         lat,
         lon,
+        phone=None,
     ) -> None:
         if source and source_id:
             self.sources.add((str(source), str(source_id)))
@@ -169,6 +188,9 @@ class DedupIndex:
         cleaned = clean_email(email)
         if cleaned:
             self.emails.add(cleaned)
+        phone_key = norm_phone(phone)
+        if phone_key:
+            self.phones.add(phone_key)
         address_key = norm_text(address)
         city_key = norm_text(city)
         if address_key and city_key:

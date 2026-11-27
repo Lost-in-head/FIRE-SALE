@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .geo import load_ring
+from .lead_filters import OffTargetRule
 from .providers.base import parse_osm_tag
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "prospecting.toml"
@@ -55,6 +56,7 @@ class Campaign:
     exclude_keywords: tuple[str, ...]
     weak_website_hosts: tuple[str, ...]
     targets: tuple[TargetGroup, ...]
+    off_target_rules: tuple[OffTargetRule, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,8 @@ class ProspectingFile:
     delay_seconds: float
     chain_names: tuple[str, ...]
     drop_branded: bool
+    check_mx: bool = False
+    off_target_rules: tuple[OffTargetRule, ...] = ()
     sources: dict = field(default_factory=dict)
     facebook_groups: tuple[FacebookGroup, ...] = ()
 
@@ -101,6 +105,8 @@ class RunPlan:
     weak_website_hosts: tuple[str, ...]
     chain_names: tuple[str, ...]
     drop_branded: bool
+    check_mx: bool
+    off_target_rules: tuple[OffTargetRule, ...]
     max_leads: int
     provider: str
     find_emails: bool
@@ -152,6 +158,8 @@ def load_prospecting_file(path: Path | str | None = None) -> ProspectingFile:
         delay_seconds=float(run_raw.get("request_delay_seconds", 1.1)),
         chain_names=_tuple_of_strings(filters_raw.get("chain_names")),
         drop_branded=bool(filters_raw.get("drop_branded", False)),
+        check_mx=bool(filters_raw.get("check_mx", False)),
+        off_target_rules=_off_target_rules(filters_raw.get("off_target")),
         sources=dict(raw.get("sources") or {}),
         facebook_groups=_facebook_groups(raw.get("facebook_groups") or []),
     )
@@ -187,6 +195,7 @@ def _campaign(name: str, body: dict) -> Campaign:
         exclude_keywords=_tuple_of_strings(body.get("exclude_keywords")),
         weak_website_hosts=_tuple_of_strings(body.get("weak_website_hosts")),
         targets=tuple(targets),
+        off_target_rules=_off_target_rules(body.get("off_target")),
     )
 
 
@@ -361,6 +370,8 @@ def build_run_plan(
         weak_website_hosts=chosen.weak_website_hosts if chosen else (),
         chain_names=cfg.chain_names,
         drop_branded=cfg.drop_branded,
+        check_mx=cfg.check_mx,
+        off_target_rules=rules_for_campaign(cfg, campaign_name),
         max_leads=int(cfg.max_leads if max_leads is None else max_leads),
         provider=(provider or cfg.provider or "osm").strip().lower(),
         find_emails=cfg.find_emails if find_emails is None else bool(find_emails),
@@ -390,6 +401,52 @@ def plan_from_env() -> RunPlan:
         dry_run=_as_bool(os.getenv("DRY_RUN")),
         delay_seconds=float(delay) if delay is not None else None,
     )
+
+
+def rules_for_campaign(cfg: ProspectingFile, campaign_name: str | None) -> tuple[OffTargetRule, ...]:
+    """Shared off-target rules plus the campaign's own, including competitors."""
+    rules = tuple(cfg.off_target_rules)
+    exclude: tuple[str, ...] = ()
+    if campaign_name and campaign_name in cfg.campaigns:
+        campaign = cfg.campaigns[campaign_name]
+        rules = rules + campaign.off_target_rules
+        exclude = campaign.exclude_keywords
+    return _with_competitor_keywords(rules, exclude)
+
+
+def _with_competitor_keywords(
+    rules: tuple[OffTargetRule, ...],
+    exclude_keywords: tuple[str, ...],
+) -> tuple[OffTargetRule, ...]:
+    if not exclude_keywords:
+        return rules
+    merged: list[OffTargetRule] = []
+    folded = False
+    for rule in rules:
+        if rule.reason == "competitor" and not folded:
+            keywords = tuple(dict.fromkeys((*rule.keywords, *exclude_keywords)))
+            merged.append(OffTargetRule(rule.reason, rule.tags, keywords))
+            folded = True
+        else:
+            merged.append(rule)
+    if not folded:
+        merged.append(OffTargetRule("competitor", (), tuple(exclude_keywords)))
+    return tuple(merged)
+
+
+def _off_target_rules(items) -> tuple[OffTargetRule, ...]:
+    rules: list[OffTargetRule] = []
+    for item in items or []:
+        item = item or {}
+        reason = str(item.get("reason") or "").strip()
+        if not reason:
+            continue
+        rules.append(OffTargetRule(
+            reason=reason,
+            tags=tuple(_normalized_tag(tag) for tag in _tuple_of_strings(item.get("tags"))),
+            keywords=_tuple_of_strings(item.get("keywords")),
+        ))
+    return tuple(rules)
 
 
 def _facebook_groups(items) -> tuple[FacebookGroup, ...]:

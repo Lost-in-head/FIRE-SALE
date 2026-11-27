@@ -93,6 +93,20 @@ Groups with public URLs:
 
 The bbox is only the search rectangle. `config/areas/brampton.geojson` and `config/areas/prince_edward_county.geojson` are the municipal polygons. Georgetown and Norval proper fall outside Brampton. Trenton falls outside Prince Edward County. A point is kept only when it is inside the polygon.
 
+## Filters
+
+Before a business is stored, scored, or emailed, the prospector drops off-target places and clears bad emails. The lists live in `config/prospecting.toml`:
+
+- `[[filters.off_target]]` applies to every campaign. Reasons cover government offices (including ServiceOntario, libraries, and post offices), schools, places of worship, hospitals, chambers and boards of trade, charities, banks, gas stations, parking, and bus stops.
+- `[[campaigns.<name>.off_target]]` adds campaign rules. Tree and contracting work treats landscapers and contractors as competitors. Website design treats web and marketing agencies as competitors.
+- `exclude_keywords` is folded into the competitor reason.
+
+Each block is a `reason`, a list of OSM `tags` (`key=value`), and a list of name `keywords`. Add or remove a line to change what is dropped. The log shows a count per reason and does not print email addresses.
+
+`python backend/agents/filter_existing.py` applies the same rules to rows already in the database. It sets `status` to `filtered` and stores `filter_reason`. It clears a bad email and leaves the row. It does not delete and it does not send email. The scheduled workflow runs it before scoring. Run it again any time; rows already filtered stay as they are. `--dry-run` prints the counts only.
+
+Closed OSM places (`disused:` or `was:` tags, or `opening_hours=closed`) are skipped on the way in. Stored rows do not keep the original tags, so the cleanup command cannot see that signal. A point outside the area polygon is dropped on the way in and marked `outside_area` by the cleanup command when latitude and longitude are stored.
+
 ## Chains
 
 The denylist includes Sutton (the real-estate franchise) and Country Inn & Suites, plus the same class of hotel franchise already used for Hilton, Marriott, and the others.

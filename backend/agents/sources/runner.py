@@ -5,7 +5,13 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-from ..lead_filters import chain_skip_reason, excluded_keyword
+from ..email_check import assess_email
+from ..lead_filters import (
+    chain_skip_reason,
+    excluded_keyword,
+    off_target_reason,
+    outside_boundary,
+)
 from ..lead_store import DedupIndex, StoredLead, clean_email, enrich_lead, insert_lead
 from ..mailer import send_email
 from ..providers.osm import default_user_agent
@@ -34,6 +40,8 @@ def run_configured_sources(plan, conn: sqlite3.Connection, index: DedupIndex, *,
     report: dict[str, dict] = {}
     alerts: list[dict] = []
     inserted = 0
+    dropped: dict[str, int] = {}
+    emails_cleared: dict[str, int] = {}
     for name, collector in _COLLECTORS.items():
         body = configured.get(name) or {}
         if not body or not body.get("enabled", False):
@@ -50,8 +58,12 @@ def run_configured_sources(plan, conn: sqlite3.Connection, index: DedupIndex, *,
                 "errors": [f"{type(exc).__name__}: {exc}"],
             }
             continue
-        saved, enriched = _store(plan, conn, index, outcome)
+        saved, enriched, source_dropped, source_cleared = _store(plan, conn, index, outcome)
         inserted += saved
+        for reason, count in source_dropped.items():
+            dropped[reason] = dropped.get(reason, 0) + count
+        for reason, count in source_cleared.items():
+            emails_cleared[reason] = emails_cleared.get(reason, 0) + count
         if name == "storm_alerts":
             recorded = list(outcome.alerts) if plan.dry_run else _record_alerts(conn, outcome.alerts)
             alerts.extend(recorded)
@@ -63,12 +75,47 @@ def run_configured_sources(plan, conn: sqlite3.Connection, index: DedupIndex, *,
         public["samples"] = [lead.business_name for lead in outcome.leads[:3]]
         report[name] = public
         log.info("Source %s %s", name, public)
-    return {"sources": report, "alerts": alerts, "inserted": inserted}
+    if dropped:
+        log.info("Dropped leads by reason: %s", dropped)
+    if emails_cleared:
+        log.info("Cleared unusable emails by reason: %s", emails_cleared)
+    return {
+        "sources": report,
+        "alerts": alerts,
+        "inserted": inserted,
+        "dropped": dropped,
+        "emails_cleared": emails_cleared,
+    }
 
 
-def _store(plan, conn, index: DedupIndex, outcome: SourceOutcome) -> tuple[int, int]:
+def _boundary_for(plan, area: str):
+    keys = getattr(plan, "area_keys", ()) or ()
+    bounds = getattr(plan, "boundaries", ()) or ()
+    for key, boundary in zip(keys, bounds):
+        if key == area:
+            return boundary
+    return None
+
+
+def _off_target(plan, lead: StoredLead) -> str | None:
+    rules = tuple(getattr(plan, "off_target_rules", ()) or ())
+    if rules:
+        return off_target_reason(
+            lead.business_name,
+            (),
+            rules,
+            keep_tags=getattr(plan, "tags", ()) or (),
+        )
+    if excluded_keyword(lead.business_name, getattr(plan, "exclude_keywords", ()) or ()):
+        return "competitor"
+    return None
+
+
+def _store(plan, conn, index: DedupIndex, outcome: SourceOutcome) -> tuple[int, int, dict, dict]:
     saved = 0
     enriched = 0
+    dropped: dict[str, int] = {}
+    cleared: dict[str, int] = {}
     for lead in outcome.leads:
         if lead.lead_type == "business":
             reason = chain_skip_reason(
@@ -80,9 +127,23 @@ def _store(plan, conn, index: DedupIndex, outcome: SourceOutcome) -> tuple[int, 
             )
             if reason:
                 continue
-            if excluded_keyword(lead.business_name, plan.exclude_keywords):
+            off = _off_target(plan, lead)
+            if off:
+                dropped[off] = dropped.get(off, 0) + 1
+                log.info("Skip off-target (%s): %s", off, lead.business_name)
                 continue
-        email = clean_email(lead.email)
+            if outside_boundary(lead.lat, lead.lon, _boundary_for(plan, lead.area)):
+                dropped["outside_area"] = dropped.get("outside_area", 0) + 1
+                log.info("Skip outside area: %s", lead.business_name)
+                continue
+        if (lead.consent or "") == "inbound_quote":
+            email = clean_email(lead.email)
+        else:
+            email, email_reason = assess_email(
+                lead.email, check_mx=bool(getattr(plan, "check_mx", False))
+            )
+            if email_reason:
+                cleared[email_reason] = cleared.get(email_reason, 0) + 1
         if lead.lead_type == "business":
             existing = index.find_business_id(lead.business_name, lead.city)
             if existing is not None and lead.source != "osm":
@@ -106,7 +167,7 @@ def _store(plan, conn, index: DedupIndex, outcome: SourceOutcome) -> tuple[int, 
         lead_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         index.remember(lead, email, lead_id=lead_id)
         saved += 1
-    return saved, enriched
+    return saved, enriched, dropped, cleared
 
 
 def _record_alerts(conn: sqlite3.Connection, alerts: list[dict]) -> list[dict]:
