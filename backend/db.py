@@ -105,6 +105,11 @@ def migrate_db(conn: sqlite3.Connection) -> None:
         "website_flags":    "TEXT",
         "lat":              "REAL",
         "lon":              "REAL",
+
+        # Set when a stored lead is kept but must not be scored or contacted.
+        # The row stays so the reason is visible. filter_reason is a short code.
+        "filter_reason":    "TEXT",
+        "filtered_at":      "TIMESTAMP",
     }
 
     for col, dtype in additions.items():

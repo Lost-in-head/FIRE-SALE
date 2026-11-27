@@ -2,9 +2,13 @@
 
 Name matching is word-based so short chain tokens do not hit unrelated
 businesses ("shell" does not match "Shelley"). Categories stay in config.
+Off-target rules are also config: tags and keywords in, a reason out.
 """
 
 import re
+from dataclasses import dataclass
+
+from .geo import contains
 
 
 def _words(value: str) -> str:
@@ -68,6 +72,60 @@ def match_label(name: str, osm_tags, groups) -> str:
             if contains_token(name or "", keyword):
                 return group.label
     return ""
+
+
+@dataclass(frozen=True)
+class OffTargetRule:
+    reason: str
+    tags: tuple[str, ...]
+    keywords: tuple[str, ...]
+
+
+def off_target_reason(name, osm_tags, rules, *, keep_tags=()) -> str | None:
+    """Return the configured reason this place should be dropped, or None.
+
+    A hospital/clinic rule does not apply when the place already matches a
+    campaign target tag, so a dental office or vet clinic can keep a clinic
+    tag. Other reasons still apply.
+    """
+    tagset = {f"{key}={value}" for key, value in osm_tags or ()}
+    spared = any(tag in tagset for tag in keep_tags)
+    for rule in rules:
+        if spared and rule.reason == "hospital":
+            continue
+        for tag in rule.tags:
+            if tag in tagset:
+                return rule.reason
+        for keyword in rule.keywords:
+            if contains_token(name or "", keyword):
+                return rule.reason
+    return None
+
+
+def closed_reason(osm_tags) -> str | None:
+    """Return 'closed' for a permanently closed OSM place, or None."""
+    for key, value in osm_tags or ():
+        folded = str(key).casefold()
+        if folded.startswith("disused:") or folded.startswith("was:"):
+            return "closed"
+        if folded == "opening_hours" and str(value).strip().casefold() == "closed":
+            return "closed"
+    return None
+
+
+def outside_boundary(lat, lon, boundary) -> bool:
+    """True when a point is present and falls outside the area polygon.
+
+    A missing point or a missing polygon is not treated as outside. The
+    search bbox can be larger than the municipality, so this is the check
+    that drops a hit which slipped past that window.
+    """
+    if boundary is None or lat is None or lon is None:
+        return False
+    try:
+        return not contains(boundary, float(lon), float(lat))
+    except (TypeError, ValueError):
+        return False
 
 
 def excluded_keyword(name: str, keywords: tuple[str, ...]) -> str | None:

@@ -34,6 +34,14 @@ Exactly two campaigns ship:
 
 Both campaigns share `[filters]`: a name denylist, plus any OSM `brand` or `brand:wikidata` tag when `drop_branded` is true. Competitor names (`exclude_keywords` on the campaign) are skipped too.
 
+`[[filters.off_target]]` drops places that are not buyers: government offices, schools, places of worship, hospitals, chambers and boards of trade, charities, banks, gas stations, parking, and bus stops. Each campaign can add its own list under `[[campaigns.<name>.off_target]]`. A block has a `reason`, OSM `tags`, and name `keywords`. Edit those lists to change what is dropped. The run log counts drops by reason and does not include email addresses.
+
+A bad email is cleared and the lead is kept. That covers placeholders (`user@domain.com`, `example.com`), tracking addresses (Sentry, Wix, Cloudflare email-protection), image filenames, and role accounts (`noreply`, `postmaster`). `check_mx = false` by default. Set it to true to clear an address when a lookup shows it cannot receive mail. A lookup error keeps the address.
+
+Permanently closed OSM places (`disused:` / `was:` tags, or `opening_hours=closed`) are skipped. The same email or the same phone on a different business name is skipped. A point outside the area polygon is skipped.
+
+Existing rows are not deleted. `python backend/agents/filter_existing.py` marks them `filtered` with `filter_reason` and clears a bad email. The director runs that step before scoring. It does not send email. `--dry-run` only reports the counts.
+
 Each new lead stores `campaign`, `area`, and `business_type` when a target matched.
 
 ## Overrides
@@ -54,10 +62,10 @@ Each new lead stores `campaign`, `area`, and `business_type` when a target match
 Pass areas or cities, not both. `--queries` replaces campaign keywords for that run.
 
 ## Email on the lead
-An address already on the OSM object is stored. Otherwise the agent may read that business's own site. A lead with no email is still inserted. Outreach skips it later.
+An address already on the OSM object is stored when it passes the email check. A placeholder, tracking, image, or role address is cleared and the lead is still inserted. Otherwise the agent may read that business's own site. Outreach skips a lead with no email.
 
 ## Dedupe
-Skip when an existing lead matches, in order: `source` + `source_id`, website host, email, then the same OpenStreetMap place when a node and a way share a name and a location. A direct-mail address is also kept once.
+Skip when an existing lead matches, in order: `source` + `source_id`, website host, email, phone (digits only, so formatting differences still match), then the same OpenStreetMap place when a node and a way share a name and a location. A direct-mail address is also kept once. The same email or phone on two different business names is one lead.
 
 A node and a way for one shop become one lead. The kept record uses the richer id and fills any blank phone, email, website, or address from the other element.
 

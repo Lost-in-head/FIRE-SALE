@@ -11,7 +11,9 @@ The first runs stay in test mode. Mail is redirected to the owner's own address.
 - `AGENTS/` — agent specs
 
 ## Pipeline
-Prospecting → qualification → outreach → reply check → follow-up → call brief
+Prospecting → filter existing leads → qualification → outreach → reply check → follow-up → call brief
+
+Bad emails are cleared. Government offices, schools, places of worship, hospitals, boards of trade, and the other off-target lists in `config/prospecting.toml` are not scored or emailed. `python backend/agents/filter_existing.py` marks rows already stored; it does not delete them and it does not send email.
 
 OpenStreetMap is one source. Need-help posts, weather alerts, Brampton permits, directories, and quote-form files are separate sources in `config/prospecting.toml`. Each one can be turned off. A source that cannot be read is skipped. See [Lead sources](docs/lead-sources.md).
 

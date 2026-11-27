@@ -5,11 +5,12 @@ The top-level orchestrator for the FIRE-SALE system.
 
 Run this to execute the full autonomous pipeline:
   1. Prospector Agent — find new businesses (OpenStreetMap by default)
-  2. Lead Gen Agent   — qualify any unscored leads
-  3. Outreach Agent   — send initial cold emails to qualified leads
-  4. Reply detection  — optional IMAP; stops follow-ups after a reply
-  5. Follow-Up Agent  — send scheduled follow-ups to contacted leads
-  6. Closer Agent     — generate call briefs for meeting-booked leads
+  2. Filter existing  — clear bad emails and mark off-target rows filtered
+  3. Lead Gen Agent   — qualify any unscored leads
+  4. Outreach Agent   — send initial cold emails to qualified leads
+  5. Reply detection  — optional IMAP; stops follow-ups after a reply
+  6. Follow-Up Agent  — send scheduled follow-ups to contacted leads
+  7. Closer Agent     — generate call briefs for meeting-booked leads
 
 The Director logs a pipeline summary report after each run and can be
 scheduled via cron or run manually.
@@ -18,6 +19,7 @@ Usage:
     python director_agent.py           # full run
     python director_agent.py --dry-run # preview only
     python director_agent.py --stage prospector
+    python director_agent.py --stage filter_existing
     python director_agent.py --stage lead_gen
     python director_agent.py --stage outreach
     python director_agent.py --stage followup
@@ -93,6 +95,13 @@ def _run_prospector() -> dict:
     return ProspectorAgent().run()
 
 
+def _run_filter_existing() -> dict:
+    log.info("══ Filter existing leads ══")
+    from agents.filter_existing import filter_existing_leads
+    dry_run = os.getenv("DRY_RUN", "false").strip().lower() in {"1", "true", "yes", "on"}
+    return filter_existing_leads(dry_run=dry_run)
+
+
 def _run_lead_gen() -> dict:
     log.info("══ Stage 2: Lead Gen Agent ══")
     from agents.lead_gen_agent import LeadGenAgent
@@ -147,6 +156,7 @@ def _execute_stage(name: str, fn) -> dict:
 
 STAGES = {
     "prospector": _run_prospector,
+    "filter_existing": _run_filter_existing,
     "lead_gen":   _run_lead_gen,
     "outreach":   _run_outreach,
     "replies":    _run_replies,
@@ -229,6 +239,11 @@ class DirectorAgent:
         all_results: dict[str, dict] = {}
 
         if self.stage:
+            # Scoring and outreach must not see rows the filters would drop.
+            if self.stage in {"lead_gen", "outreach", "followup"}:
+                all_results["filter_existing"] = _execute_stage(
+                    "filter_existing", STAGES["filter_existing"]
+                )
             # Run a single named stage
             fn = STAGES.get(self.stage)
             if not fn:

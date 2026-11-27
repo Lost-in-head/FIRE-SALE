@@ -148,7 +148,7 @@ class LeadGenAgent:
         cursor.execute("""
             SELECT * FROM leads
             WHERE qualify_score IS NULL
-              AND status NOT IN ('dead', 'closed')
+              AND status NOT IN ('dead', 'closed', 'filtered')
         """)
         leads = cursor.fetchall()
 

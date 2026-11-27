@@ -8,10 +8,11 @@ config/prospecting.toml and can be overridden per run. Leads are kept
 when no email is published. Email discovery, when enabled, reads only
 that business's own website.
 
-Chains are dropped using the configured name list and OSM brand tags.
+Chains, off-target places, and permanently closed places are dropped.
+A bad email is cleared and the lead is still stored.
 Each inserted lead is tagged with its campaign and area.
 
-Dedupe order: source + source id, normalized website host, then email.
+Dedupe order: source + source id, normalized website host, email, then phone.
 
 Usage:
     python backend/agents/prospector_agent.py
@@ -39,15 +40,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "backend"))
 
 from db import get_connection, init_db  # noqa: E402
+from agents.email_check import assess_email  # noqa: E402
 from agents.email_discovery import discover_email  # noqa: E402
 from agents.geo import contains  # noqa: E402
 from agents.lead_filters import (  # noqa: E402
     chain_skip_reason,
-    excluded_keyword,
+    closed_reason,
     match_label,
+    off_target_reason,
     order_prospects,
+    outside_boundary,
 )
-from agents.lead_store import DedupIndex, clean_email, website_host  # noqa: E402
+from agents.lead_store import DedupIndex, website_host  # noqa: E402
 from agents.prospecting_config import plan_from_env, search_batches  # noqa: E402
 from agents.providers import get_provider  # noqa: E402
 from agents.providers.base import Prospect, SearchRequest  # noqa: E402
@@ -58,8 +62,9 @@ from agents.sources.runner import run_configured_sources  # noqa: E402
 log = logging.getLogger("prospector_agent")
 
 
-def _clean_email(email: str | None) -> str | None:
-    return clean_email(email)
+def _bump(bucket: dict[str, int], reason: str | None) -> None:
+    if reason:
+        bucket[reason] = bucket.get(reason, 0) + 1
 
 
 def _inside_boundary(prospect: Prospect, boundary) -> bool:
@@ -88,7 +93,11 @@ class ProspectorAgent:
         with_phone = 0
         chains_filtered = 0
         excluded = 0
-        duplicates = {"source": 0, "website": 0, "email": 0, "place": 0, "address": 0}
+        duplicates = {
+            "source": 0, "website": 0, "email": 0, "phone": 0, "place": 0, "address": 0,
+        }
+        dropped: dict[str, int] = {}
+        emails_cleared: dict[str, int] = {}
         errors: list[str] = []
         inserted_names: list[str] = []
         chain_samples: list[str] = []
@@ -137,12 +146,15 @@ class ProspectorAgent:
                         )
                         prospects, batch_errors = self._search(request, label)
                         errors.extend(batch_errors)
-                        prospects = [item for item in prospects if _inside_boundary(item, boundary)]
                         for prospect in prospects:
                             identity = prospect.source_id or prospect.business_name.casefold()
                             if identity in seen:
                                 continue
                             seen.add(identity)
+                            if not _inside_boundary(prospect, boundary):
+                                _bump(dropped, "outside_area")
+                                log.info("Skip outside area: %s", prospect.business_name)
+                                continue
                             found += 1
                             reason = chain_skip_reason(
                                 prospect.business_name,
@@ -161,11 +173,21 @@ class ProspectorAgent:
                                     prospect.business_name,
                                 )
                                 continue
-                            if excluded_keyword(
-                                prospect.business_name, self.plan.exclude_keywords
-                            ):
-                                excluded += 1
-                                log.info("Skip competitor name: %s", prospect.business_name)
+                            if closed_reason(prospect.osm_tags):
+                                _bump(dropped, "closed")
+                                log.info("Skip closed: %s", prospect.business_name)
+                                continue
+                            off = off_target_reason(
+                                prospect.business_name,
+                                prospect.osm_tags,
+                                self.plan.off_target_rules,
+                                keep_tags=self.plan.tags,
+                            )
+                            if off:
+                                _bump(dropped, off)
+                                if off == "competitor":
+                                    excluded += 1
+                                log.info("Skip off-target (%s): %s", off, prospect.business_name)
                                 continue
                             business_type = match_label(
                                 prospect.business_name,
@@ -189,7 +211,11 @@ class ProspectorAgent:
                 for business_type, prospect in ordered:
                     if placed >= share or remaining <= 0:
                         break
-                    email = _clean_email(prospect.email)
+                    email, email_reason = assess_email(
+                        prospect.email, check_mx=self.plan.check_mx
+                    )
+                    if email_reason:
+                        _bump(emails_cleared, email_reason)
                     preliminary = index.check(prospect, None)
                     if preliminary:
                         duplicates[preliminary] += 1
@@ -201,7 +227,13 @@ class ProspectorAgent:
                         )
                         continue
                     if email is None and self.plan.find_emails and prospect.website:
-                        email = self._discover(prospect.website)
+                        found, found_reason = assess_email(
+                            self._discover(prospect.website),
+                            check_mx=self.plan.check_mx,
+                        )
+                        if found_reason:
+                            _bump(emails_cleared, found_reason)
+                        email = found
                     conflict = index.check(prospect, email)
                     if conflict:
                         duplicates[conflict] += 1
@@ -247,6 +279,10 @@ class ProspectorAgent:
                 sleep=self._sleep,
             )
             inserted += source_run["inserted"]
+            for reason, count in source_run.get("dropped", {}).items():
+                dropped[reason] = dropped.get(reason, 0) + count
+            for reason, count in source_run.get("emails_cleared", {}).items():
+                emails_cleared[reason] = emails_cleared.get(reason, 0) + count
         finally:
             conn.close()
 
@@ -261,6 +297,8 @@ class ProspectorAgent:
             "with_phone": with_phone,
             "chains_filtered": chains_filtered,
             "excluded": excluded,
+            "dropped": dropped,
+            "emails_cleared": emails_cleared,
             "sample_names": inserted_names[:5],
             "inserted_names": inserted_names,
             "chain_samples": chain_samples[:5],
@@ -273,6 +311,8 @@ class ProspectorAgent:
             "sources": source_run["sources"],
             "alerts": source_run["alerts"],
         }
+        log.info("Dropped leads by reason: %s", dropped)
+        log.info("Cleared unusable emails by reason: %s", emails_cleared)
         log.info("Prospector complete. %s", result)
         return result
 
@@ -301,7 +341,7 @@ class ProspectorAgent:
         except Exception as exc:
             log.warning("Email discovery failed for %s: %s", website, exc)
             return None
-        return _clean_email(found)
+        return found
 
     def _sleep(self, seconds: float) -> None:
         if self.plan.delay_seconds <= 0:
@@ -478,6 +518,7 @@ def main(argv: list[str] | None = None) -> dict:
         f"Prospecting complete. inserted={result['leads_inserted']} "
         f"with_website={result['with_website']} with_email={result['with_email']} "
         f"with_phone={result['with_phone']} chains_filtered={result['chains_filtered']} "
+        f"dropped={result['dropped']} emails_cleared={result['emails_cleared']} "
         f"duplicates={result['skipped_duplicate']} dry_run={result['dry_run']}"
     )
     return result

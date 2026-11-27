@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-STAGE_ORDER = ["prospector", "lead_gen", "outreach", "replies", "followup", "closer"]
+STAGE_ORDER = [
+    "prospector", "filter_existing", "lead_gen", "outreach", "replies", "followup", "closer",
+]
 
 
 @pytest.fixture()
